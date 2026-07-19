@@ -215,6 +215,22 @@ def get_settings(config_path: str | None = None) -> Settings:
 
     ``config_path`` lets tests inject a custom YAML file; in normal operation
     the path comes from ``QVG_CONFIG_FILE`` or defaults to ``config.yaml``.
+
+    Implementation note
+    -------------------
+    Pydantic v2 ``BaseSettings`` gives explicit kwargs precedence over
+    environment variables. That means if a YAML file contains
+    ``mongodb_uri: ""`` (an empty string placeholder, as our
+    ``config.example.yaml`` does for every secret), passing that empty
+    string as a kwarg would *silently override* the real value coming
+    from ``MONGODB_URI`` in the environment — which is exactly the bug
+    that broke the GitHub Actions run even when secrets were set.
+
+    Fix: drop any top-level YAML scalar that is empty / None / whitespace
+    before constructing ``Settings``. Those fields then fall back to
+    either the env var (if set) or the field default (empty string),
+    and ``require_cloud_credentials()`` can surface a clear error if
+    both are missing.
     """
     yaml_path = Path(
         config_path
@@ -229,8 +245,22 @@ def get_settings(config_path: str | None = None) -> Settings:
     if "logging" in yaml_data and isinstance(yaml_data["logging"], dict):
         yaml_data["logging"] = LoggingConfig(**yaml_data["logging"])
 
+    # Drop empty/None top-level scalars so env vars can fill them in.
+    # (Nested sub-models like `selection` / `logging` are kept as-is.)
+    filtered: dict[str, Any] = {}
+    for k, v in yaml_data.items():
+        if isinstance(v, str):
+            if v.strip():
+                filtered[k] = v
+            # else: skip empty/whitespace string → let env var or default apply
+        elif v is None:
+            # skip None → let env var or default apply
+            continue
+        else:
+            filtered[k] = v
+
     # ``Settings`` itself will pick up env vars / .env on top of these kwargs.
-    return Settings(**yaml_data)
+    return Settings(**filtered)
 
 
 def reload_settings(config_path: str | None = None) -> Settings:

@@ -1,19 +1,29 @@
 # === Quran Video Generator – example configuration ===
 # Copy to config.yaml and adjust. Values can also be overridden by environment
-# variables (see .env.example). Environment variables take precedence.
+# variables (see .env.example). Environment variables take precedence over
+# the values in this file.
+#
+# IMPORTANT: leave the secret fields COMMENTED OUT (or set them to a
+# non-empty placeholder). Pydantic v2 BaseSettings gives explicit YAML
+# values precedence over env vars, so an empty string `mongodb_uri: ""`
+# here would silently override the real value coming from MONGODB_URI in
+# the environment. The loader filters out empty/None scalars as a safety
+# net, but commenting them out is the clearest signal to anyone reading
+# this file.
 
 # --- Cloud infrastructure (REQUIRED) ---
-# MongoDB Atlas connection string and database name.
-mongodb_uri: ""               # set via MONGODB_URI env var / GitHub secret
+# MongoDB Atlas: set MONGODB_URI via env var / GitHub secret.
+# mongodb_uri: ""              # ← DO NOT uncomment with empty value
 mongodb_db_name: "quran_video_generator"
 
-# Cloudinary credentials for final MP4 upload.
-cloudinary_cloud_name: ""     # set via CLOUDINARY_CLOUD_NAME env var / GitHub secret
-cloudinary_api_key: ""        # set via CLOUDINARY_API_KEY env var / GitHub secret
-cloudinary_api_secret: ""     # set via CLOUDINARY_API_SECRET env var / GitHub secret
+# Cloudinary: set CLOUDINARY_CLOUD_NAME / CLOUDINARY_API_KEY /
+# CLOUDINARY_API_SECRET via env vars / GitHub secrets.
+# cloudinary_cloud_name: ""   # ← DO NOT uncomment with empty value
+# cloudinary_api_key: ""      # ← DO NOT uncomment with empty value
+# cloudinary_api_secret: ""   # ← DO NOT uncomment with empty value
 
 # GitHub Actions run ID (auto-filled by the workflow; empty when local).
-github_run_id: ""
+# github_run_id: ""
 
 # --- Clip generation ---
 clip_duration: 60              # seconds – length of each generated clip

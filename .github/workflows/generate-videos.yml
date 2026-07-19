@@ -119,6 +119,11 @@ jobs:
       - name: Verify configuration
         run: |
           python -c "
+          import os
+          # Print which secret-derived env vars are present (NOT their values).
+          for k in ['MONGODB_URI', 'MONGODB_DB_NAME', 'CLOUDINARY_CLOUD_NAME',
+                    'CLOUDINARY_API_KEY', 'CLOUDINARY_API_SECRET']:
+              print(f'  {k}: {\"set (\" + str(len(os.environ.get(k, \"\"))) + \" chars)\" if os.environ.get(k) else \"MISSING\"}')
           from src.config.settings import get_settings
           s = get_settings()
           s.require_cloud_credentials()
