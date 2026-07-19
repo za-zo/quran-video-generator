@@ -27,7 +27,7 @@ async function getRun(id: string) {
 async function getSlices(executionId: string, page: number) {
   const db = await getDb();
   const { ObjectId } = await import("mongodb");
-  let oid: ObjectId;
+  let oid;
   try {
     oid = new ObjectId(executionId);
   } catch {

@@ -15,7 +15,7 @@ import {
 } from "@/lib/format";
 
 async function getSlice(id: string) {
-  let oid: ObjectId;
+  let oid;
   try {
     oid = new ObjectId(id);
   } catch {
