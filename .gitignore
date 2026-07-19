@@ -1,25 +1,31 @@
 # === Python ===
+# Scope these generic patterns to the Python source tree only so they
+# don't accidentally capture webapp/src/lib/, webapp/build/, etc.
+/src/**/__pycache__/
+/src/**/*.py[cod]
+/src/**/*$py.class
+/src/**/*.so
+/src/**/.Python
+/src/**/build/
+/src/**/develop-eggs/
+/src/**/dist/
+/src/**/downloads/
+/src/**/eggs/
+/src/**/.eggs/
+/src/**/lib/
+/src/**/lib64/
+/src/**/parts/
+/src/**/sdist/
+/src/**/var/
+/src/**/wheels/
+/src/**/*.egg-info/
+/src/**/.installed.cfg
+/src/**/*.egg
+/src/**/MANIFEST
+# Allow root-level Python scripts (main.py) and tests.
 __pycache__/
 *.py[cod]
 *$py.class
-*.so
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-MANIFEST
 
 # === Virtual environments ===
 venv/
@@ -67,3 +73,15 @@ Thumbs.db
 .coverage
 htmlcov/
 .tox/
+
+# === Webapp (Next.js) ===
+webapp/node_modules/
+webapp/.next/
+webapp/out/
+webapp/build/
+webapp/dist/
+webapp/.env
+webapp/.env.local
+webapp/.env.*.local
+webapp/*.tsbuildinfo
+webapp/npm-debug.log*

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import random
-from pathlib import Path
 
 import pytest
 
@@ -13,24 +12,37 @@ from src.models import AudioRecord
 from src.services.clip_extractor import ClipExtractor
 
 
-def _audio(duration: float, audio_id: int = 1) -> AudioRecord:
+def _audio(duration: float, audio_id: str = "audio-1") -> AudioRecord:
     return AudioRecord(
         id=audio_id,
-        filename=f"audio_{audio_id}.mp3",
+        name=f"audio_{audio_id}.mp3",
+        source_url=f"https://example.com/audio_{audio_id}.mp3",
         duration_seconds=duration,
     )
 
 
+def _settings(**overrides) -> Settings:
+    defaults = dict(
+        clip_duration=60,
+        clips_per_audio=5,
+        mongodb_uri="mongodb://localhost/test",
+        mongodb_db_name="qvg_test",
+        cloudinary_cloud_name="test-cloud",
+        cloudinary_api_key="test-key",
+        cloudinary_api_secret="test-secret",
+    )
+    defaults.update(overrides)
+    return Settings(**defaults)
+
+
 def test_too_short_audio_raises():
-    settings = Settings(clip_duration=60, clips_per_audio=5, db_path="/tmp/_unused.db")
-    extractor = ClipExtractor(settings, rng=random.Random(0))
+    extractor = ClipExtractor(_settings(clip_duration=60), rng=random.Random(0))
     with pytest.raises(InsufficientAudioDurationError):
         extractor.extract(_audio(30.0))
 
 
 def test_exact_fit_one_clip():
-    settings = Settings(clip_duration=60, clips_per_audio=5, db_path="/tmp/_unused.db")
-    extractor = ClipExtractor(settings, rng=random.Random(0))
+    extractor = ClipExtractor(_settings(clip_duration=60), rng=random.Random(0))
     clips = extractor.extract(_audio(60.0))
     assert len(clips) == 1
     assert clips[0].duration_seconds == pytest.approx(60.0)
@@ -38,8 +50,10 @@ def test_exact_fit_one_clip():
 
 
 def test_clips_never_overlap():
-    settings = Settings(clip_duration=10, clips_per_audio=5, db_path="/tmp/_unused.db")
-    extractor = ClipExtractor(settings, rng=random.Random(7))
+    extractor = ClipExtractor(
+        _settings(clip_duration=10, clips_per_audio=5),
+        rng=random.Random(7),
+    )
     clips = extractor.extract(_audio(120.0))
     assert len(clips) == 5
     # Sort by start and verify non-overlap.
@@ -55,8 +69,10 @@ def test_clips_never_overlap():
 
 
 def test_fewer_clips_than_requested_logs_warning_but_succeeds(caplog):
-    settings = Settings(clip_duration=30, clips_per_audio=10, db_path="/tmp/_unused.db")
-    extractor = ClipExtractor(settings, rng=random.Random(0))
+    extractor = ClipExtractor(
+        _settings(clip_duration=30, clips_per_audio=10),
+        rng=random.Random(0),
+    )
     clips = extractor.extract(_audio(90.0))
     # 90s / 30s = 3 clips fit
     assert len(clips) == 3
@@ -67,15 +83,19 @@ def test_fewer_clips_than_requested_logs_warning_but_succeeds(caplog):
 
 
 def test_clip_indices_are_zero_based_and_sequential():
-    settings = Settings(clip_duration=5, clips_per_audio=4, db_path="/tmp/_unused.db")
-    extractor = ClipExtractor(settings, rng=random.Random(1))
+    extractor = ClipExtractor(
+        _settings(clip_duration=5, clips_per_audio=4),
+        rng=random.Random(1),
+    )
     clips = extractor.extract(_audio(40.0))
     assert [c.index for c in clips] == [0, 1, 2, 3]
 
 
 def test_clips_within_audio_bounds():
-    settings = Settings(clip_duration=15, clips_per_audio=3, db_path="/tmp/_unused.db")
-    extractor = ClipExtractor(settings, rng=random.Random(42))
+    extractor = ClipExtractor(
+        _settings(clip_duration=15, clips_per_audio=3),
+        rng=random.Random(42),
+    )
     audio = _audio(100.0)
     clips = extractor.extract(audio)
     for c in clips:
@@ -85,7 +105,7 @@ def test_clips_within_audio_bounds():
 
 
 def test_reproducible_with_seed():
-    settings = Settings(clip_duration=10, clips_per_audio=4, db_path="/tmp/_unused.db")
+    settings = _settings(clip_duration=10, clips_per_audio=4)
     audio = _audio(80.0)
     e1 = ClipExtractor(settings, rng=random.Random(123))
     e2 = ClipExtractor(settings, rng=random.Random(123))

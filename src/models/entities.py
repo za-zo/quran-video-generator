@@ -2,8 +2,14 @@
 
 These are the data structures that flow between selectors, the clip
 extractor, the video processor, and the orchestrator. They are deliberately
-decoupled from the ORM models so we can change the storage layer without
-touching the orchestration logic.
+decoupled from the storage layer so we can change the persistence backend
+(SQLAlchemy → MongoDB → anything) without touching the orchestration logic.
+
+ID convention
+-------------
+All ``id`` fields are ``str`` (MongoDB ``ObjectId`` stringified at the
+repository boundary). This keeps the rest of the codebase storage-agnostic
+and lets the webapp pass IDs around as plain URL segments.
 """
 
 from __future__ import annotations
@@ -15,22 +21,23 @@ from pathlib import Path
 
 @dataclass(frozen=True)
 class AudioRecord:
-    """Audio file as known to the selection layer."""
+    """Audio file as known to the selection layer.
 
-    id: int
-    filename: str
+    ``source_url`` is a remote URL the pipeline downloads at runtime –
+    the file is NOT stored locally.
+    """
+
+    id: str
+    name: str
+    source_url: str
     duration_seconds: float
     usage_count: int = 0
     last_used_at: datetime | None = None
 
-    @property
-    def path(self) -> Path:
-        return Path(self.filename)
-
 
 @dataclass(frozen=True)
 class CategoryRecord:
-    id: int
+    id: str
     name: str
     usage_count: int = 0
     last_used_at: datetime | None = None
@@ -38,23 +45,20 @@ class CategoryRecord:
 
 @dataclass(frozen=True)
 class VideoRecord:
-    id: int
-    category_id: int
-    filename: str
+    id: str
+    category_id: str
+    name: str
+    source_url: str
     duration_seconds: float
     usage_count: int = 0
     last_used_at: datetime | None = None
-
-    @property
-    def path(self) -> Path:
-        return Path(self.filename)
 
 
 @dataclass(frozen=True)
 class AudioClip:
     """A non-overlapping slice of a longer audio file."""
 
-    audio_id: int
+    audio_id: str
     index: int        # 0-based index among clips generated from this audio
     start_seconds: float
     end_seconds: float
@@ -66,31 +70,36 @@ class AudioClip:
 
 @dataclass(frozen=True)
 class VideoSegment:
-    """A single background-video file chosen for a clip."""
+    """A single background-video file chosen for a clip.
 
-    video_id: int
-    filename: str
+    ``local_path`` is set by the orchestrator after the segment's
+    ``source_url`` has been downloaded to a temp directory; the FFmpeg
+    layer consumes only that local path.
+    """
+
+    video_id: str
+    name: str
+    source_url: str
     duration_seconds: float
-
-    @property
-    def path(self) -> Path:
-        return Path(self.filename)
+    local_path: Path | None = None
 
 
 @dataclass
 class GenerationJobResult:
     """Outcome of one clip-generation job."""
 
-    job_id: int
-    audio_id: int
+    job_id: str
+    audio_id: str
     clip_index: int
     clip_start: float
     clip_end: float
     output_path: Path | None = None
+    cloudinary_url: str | None = None
+    cloudinary_public_id: str | None = None
     status: str = "pending"
     error_message: str | None = None
-    selected_category_id: int | None = None
-    selected_video_ids: list[int] = field(default_factory=list)
+    selected_category_id: str | None = None
+    selected_video_ids: list[str] = field(default_factory=list)
 
 
 __all__ = [

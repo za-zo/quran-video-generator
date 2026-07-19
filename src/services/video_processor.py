@@ -12,11 +12,22 @@ Owns every FFmpeg operation required by the pipeline:
 
 All technical parameters (resolution, fps, codecs, temp dir) come from
 :class:`Settings` – nothing is hardcoded.
+
+Local-path contract
+-------------------
+The pipeline no longer reads media from the filesystem directly. The caller
+(``GenerationOrchestrator``) downloads each needed file via
+:mod:`src.utils.media_downloader` into a per-clip temp directory and then
+hands the local paths to ``build_clip``:
+
+  * ``audio_local_path`` – the downloaded source audio file.
+  * each ``VideoSegment.local_path`` – the downloaded background video.
+
+If either is missing, ``build_clip`` fails fast with a clear error.
 """
 
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
 
 from src.config.settings import Settings
@@ -32,9 +43,9 @@ log = get_logger(__name__)
 class VideoProcessor:
     """Single entry point for all FFmpeg operations.
 
-    The processor never touches the database – it only knows about
-    :class:`AudioRecord`, :class:`AudioClip`, :class:`VideoSegment`, and
-    :class:`Settings`. This keeps the SRP boundary clean.
+    The processor never touches the database or the network – it only knows
+    about :class:`AudioRecord`, :class:`AudioClip`, :class:`VideoSegment`,
+    and :class:`Settings`. This keeps the SRP boundary clean.
     """
 
     def __init__(self, settings: Settings) -> None:
@@ -117,12 +128,12 @@ class VideoProcessor:
             video_codec=self.settings.video_codec,
         )
 
-    def extract_audio_clip(self, audio: AudioRecord, clip: AudioClip, dst: Path) -> Path:
+    def extract_audio_clip(self, audio_path: Path, clip: AudioClip, dst: Path) -> Path:
         """Slice the source audio file according to ``clip``."""
-        if not audio.path.is_file():
-            raise CorruptedMediaError(f"audio source missing: {audio.path}")
+        if not audio_path.is_file():
+            raise CorruptedMediaError(f"audio source missing: {audio_path}")
         return ff.extract_audio_clip(
-            audio.path, dst,
+            audio_path, dst,
             start=clip.start_seconds,
             duration=clip.duration_seconds,
             audio_codec=self.settings.audio_codec,
@@ -152,38 +163,55 @@ class VideoProcessor:
     def build_clip(
         self,
         audio: AudioRecord,
+        audio_local_path: Path,
         clip: AudioClip,
         segments: list[VideoSegment],
         output_path: Path,
     ) -> Path:
         """Run the full FFmpeg pipeline for a single clip.
 
-        Steps (all inside a temp dir which is cleaned up at the end):
-          1. Validate every input file with ffprobe.
-          2. Mute each background video.
-          3. Concatenate muted videos.
-          4. Trim to clip.duration_seconds.
-          5. Extract the Quran audio clip.
-          6. Merge trimmed video + Quran audio -> ``output_path``.
+        Parameters
+        ----------
+        audio
+            The audio record (used only for metadata; the actual bytes are
+            at ``audio_local_path``).
+        audio_local_path
+            Local filesystem path to the downloaded source audio.
+        clip
+            Slice info (start/end within ``audio_local_path``).
+        segments
+            Background videos with their ``local_path`` already populated
+            by the orchestrator's download step.
+        output_path
+            Where to write the final MP4.
         """
         if not segments:
             raise FFmpegExecutionError(
                 "build_clip requires at least one video segment"
             )
+        if not audio_local_path.is_file():
+            raise CorruptedMediaError(
+                f"audio local file missing: {audio_local_path}"
+            )
+        for seg in segments:
+            if seg.local_path is None or not seg.local_path.is_file():
+                raise CorruptedMediaError(
+                    f"video segment {seg.video_id} local file missing: {seg.local_path}"
+                )
 
         # Validate inputs first – fail fast on corrupted media.
-        ff.validate_media(audio.path, expect_audio=True)
+        ff.validate_media(audio_local_path, expect_audio=True)
         for seg in segments:
-            ff.validate_media(seg.path, expect_video=True)
+            ff.validate_media(seg.local_path, expect_video=True)
 
         ensure_dir(output_path.parent)
 
         with temp_workdir(prefix=f"clip_{clip.audio_id}_{clip.index}_", base_dir=self.temp_root) as tmp:
             try:
-                # 1. Mute all background videos.
+                # 1. Mute all background videos (using their local paths).
                 muted: list[Path] = []
                 for i, seg in enumerate(segments):
-                    muted.append(self.mute(seg.path, tmp))
+                    muted.append(self.mute(seg.local_path, tmp))
 
                 # 2. Concatenate.
                 concat_dst = tmp / "concat.mp4"
@@ -195,7 +223,7 @@ class VideoProcessor:
 
                 # 4. Extract the Quran audio clip.
                 audio_clip = tmp / f"audio_{clip.audio_id}_{clip.index}.m4a"
-                self.extract_audio_clip(audio, clip, audio_clip)
+                self.extract_audio_clip(audio_local_path, clip, audio_clip)
 
                 # 5. Merge to final output.
                 self.merge_audio_video(

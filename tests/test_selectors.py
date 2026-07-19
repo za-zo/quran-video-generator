@@ -1,204 +1,252 @@
 """Unit tests for the three weighted selectors.
 
-These tests run entirely in-process against a temporary SQLite database and
-verify BOTH functional correctness and statistical properties of the
-weighted-random distribution (spec §10).
+Run entirely in-process against a ``mongomock`` database – no MongoDB
+Atlas cluster required. Verify BOTH functional correctness and statistical
+properties of the weighted-random distribution.
 """
 
 from __future__ import annotations
 
 import random
-import statistics
 from collections import Counter
-from datetime import datetime, timedelta, timezone
-from pathlib import Path
+from datetime import datetime, timezone
 
+import mongomock
 import pytest
 
 from src.config.settings import SelectionConfig, Settings
-from src.database.models import Base
-from src.database.repository import AudioRepo, CategoryRepo, JobRepo, VideoRepo
-from src.database.session import get_engine, reset_engine
+from src.database.mongo_client import set_test_db
+from src.database.repository import (
+    AudioRepo,
+    CategoryRepo,
+    ExecutionRepo,
+    VideoRepo,
+    ensure_indexes,
+)
 from src.exceptions import InsufficientCategoryContentError, NoAvailableCategoryError
-from src.models import AudioRecord
 from src.services.audio_selector import AudioSelector
 from src.services.category_selector import CategorySelector
 from src.services.video_selector import VideoSelector
 from src.utils.logger import reset_logging
 
 
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+
 @pytest.fixture()
-def tmp_db(tmp_path, monkeypatch):
-    """Point the app at a fresh SQLite file inside ``tmp_path``."""
-    db_path = tmp_path / "test.db"
-    monkeypatch.setenv("QVG_DB_PATH", str(db_path))
-    # Also override the config file so settings.db_path is correct.
+def mongo_db(tmp_path, monkeypatch):
+    """Spin up a fresh mongomock database for each test."""
+    monkeypatch.setenv("MONGODB_URI", "mongodb://localhost/test")
+    monkeypatch.setenv("MONGODB_DB_NAME", "qvg_test")
+    monkeypatch.setenv("CLOUDINARY_CLOUD_NAME", "test-cloud")
+    monkeypatch.setenv("CLOUDINARY_API_KEY", "test-key")
+    monkeypatch.setenv("CLOUDINARY_API_SECRET", "test-secret")
+
     cfg_path = tmp_path / "config.yaml"
-    cfg_path.write_text(f"db_path: {db_path}\nlog_level: ERROR\n")
+    cfg_path.write_text(
+        "mongodb_uri: mongodb://localhost/test\n"
+        "mongodb_db_name: qvg_test\n"
+        "cloudinary_cloud_name: test-cloud\n"
+        "cloudinary_api_key: test-key\n"
+        "cloudinary_api_secret: test-secret\n"
+        "log_level: ERROR\n"
+    )
     monkeypatch.setenv("QVG_CONFIG_FILE", str(cfg_path))
 
     from src.config.settings import reload_settings
     reload_settings(str(cfg_path))
-    reset_engine()
-    Base.metadata.create_all(get_engine())
-    yield db_path
-    reset_engine()
+
+    client = mongomock.MongoClient()
+    db = client["qvg_test"]
+    set_test_db(db)
+    ensure_indexes(db)
+    yield db
+    set_test_db(None)
     reset_logging()
 
 
-@pytest.fixture()
-def session_factory(tmp_db):
-    from src.database.session import get_session_factory
-    return get_session_factory()
+def _settings(cooldown: int = 2) -> Settings:
+    return Settings(
+        category_cooldown=cooldown,
+        mongodb_uri="mongodb://localhost/test",
+        mongodb_db_name="qvg_test",
+        cloudinary_cloud_name="test-cloud",
+        cloudinary_api_key="test-key",
+        cloudinary_api_secret="test-secret",
+    )
 
 
 # --- AudioSelector ----------------------------------------------------------
 
-def test_audio_selector_picks_from_pool(tmp_db, session_factory):
-    with session_factory() as s:
-        repo = AudioRepo(s)
-        for i in range(5):
-            repo.get_or_create(f"audio_{i}.mp3", duration_seconds=300.0)
-        s.commit()
-
-        sel = AudioSelector(repo, rng=random.Random(42))
-        chosen = sel.select()
-        assert chosen.filename.startswith("audio_")
-        assert chosen.duration_seconds == 300.0
+def test_audio_selector_picks_from_pool(mongo_db):
+    repo = AudioRepo(mongo_db)
+    for i in range(5):
+        repo.create(name=f"audio_{i}", source_url=f"https://example.com/{i}.mp3",
+                    duration_seconds=300.0)
+    sel = AudioSelector(repo, rng=random.Random(42))
+    chosen = sel.select()
+    assert chosen.name.startswith("audio_")
+    assert chosen.duration_seconds == 300.0
 
 
-def test_audio_selector_never_used_when_all_zero(tmp_db, session_factory):
-    """All-zero usage should still return a valid record (uniform fallback)."""
-    with session_factory() as s:
-        repo = AudioRepo(s)
-        for i in range(3):
-            repo.get_or_create(f"a{i}.mp3", duration_seconds=120.0)
-        s.commit()
-
-        sel = AudioSelector(repo, rng=random.Random(0))
-        for _ in range(20):
-            assert sel.select() is not None
+def test_audio_selector_never_used_when_all_zero(mongo_db):
+    repo = AudioRepo(mongo_db)
+    for i in range(3):
+        repo.create(name=f"a{i}", source_url=f"https://example.com/{i}.mp3",
+                    duration_seconds=120.0)
+    sel = AudioSelector(repo, rng=random.Random(0))
+    for _ in range(20):
+        assert sel.select() is not None
 
 
-def test_audio_selector_weighted_distribution(tmp_db, session_factory):
+def test_audio_selector_weighted_distribution(mongo_db):
     """Low-usage audios should be picked more often than high-usage ones."""
-    with session_factory() as s:
-        repo = AudioRepo(s)
-        # 1 audio with usage_count=0, 1 with usage_count=50
-        a0 = repo.get_or_create("low.mp3", 100.0)
-        a0.usage_count = 0
-        a0.last_used_at = None
-        a1 = repo.get_or_create("high.mp3", 100.0)
-        a1.usage_count = 50
-        a1.last_used_at = datetime.now(timezone.utc)
-        s.commit()
+    repo = AudioRepo(mongo_db)
+    a0 = repo.create(name="low", source_url="https://example.com/low.mp3",
+                     duration_seconds=100.0)
+    a0_usage = repo.get(a0.id)
+    assert a0_usage.usage_count == 0
 
-        sel = AudioSelector(repo, rng=random.Random(1234))
-        counts = Counter(sel.select().filename for _ in range(4000))
-        # The low-usage audio should be picked significantly more often.
-        assert counts["low.mp3"] > counts["high.mp3"] * 3
+    a1 = repo.create(name="high", source_url="https://example.com/high.mp3",
+                     duration_seconds=100.0)
+    # Bump usage_count to 50 directly so the recency penalty is also high.
+    mongo_db["audios"].update_one(
+        {"_id": _oid(a1.id)},
+        {"$set": {"usage_count": 50, "last_used_at": datetime.now(timezone.utc)}},
+    )
+
+    sel = AudioSelector(repo, rng=random.Random(1234))
+    counts = Counter(sel.select().name for _ in range(4000))
+    assert counts["low"] > counts["high"] * 3
 
 
-def test_audio_selector_excludes_ids(tmp_db, session_factory):
-    with session_factory() as s:
-        repo = AudioRepo(s)
-        for i in range(4):
-            repo.get_or_create(f"a{i}.mp3", 100.0)
-        s.commit()
-        sel = AudioSelector(repo, rng=random.Random(0))
-        # IDs are auto-increment starting at 1, so exclude {2,3,4} -> only id=1 remains.
-        for _ in range(50):
-            chosen = sel.select(exclude_ids={2, 3, 4})
-            assert chosen.id == 1
+def test_audio_selector_excludes_ids(mongo_db):
+    repo = AudioRepo(mongo_db)
+    ids = []
+    for i in range(4):
+        a = repo.create(name=f"a{i}", source_url=f"https://example.com/{i}.mp3",
+                        duration_seconds=100.0)
+        ids.append(a.id)
+    sel = AudioSelector(repo, rng=random.Random(0))
+    # Exclude 3 of 4 -> only one remains.
+    excluded = set(ids[1:])
+    kept = ids[0]
+    for _ in range(50):
+        chosen = sel.select(exclude_ids=excluded)
+        assert chosen.id == kept
 
 
 # --- CategorySelector -------------------------------------------------------
 
-def _make_settings(cooldown: int = 2) -> Settings:
-    return Settings(category_cooldown=cooldown, db_path="/tmp/_unused.db")
-
-
-def test_category_selector_cooldown_blocks_recent(tmp_db, session_factory):
+def test_category_selector_cooldown_blocks_recent(mongo_db):
     """When K=2 categories are on cooldown and only those exist, raise."""
-    with session_factory() as s:
-        cr = CategoryRepo(s)
-        jr = JobRepo(s)
-        for i in range(2):
-            c = cr.get_or_create(f"cat_{i}")
-            c.last_used_at = datetime.now(timezone.utc)  # just used -> cooldown
-        s.commit()
-        sel = CategorySelector(cr, jr, _make_settings(cooldown=2), rng=random.Random(0))
-        with pytest.raises(NoAvailableCategoryError):
-            sel.select()
+    cr = CategoryRepo(mongo_db)
+    er = ExecutionRepo(mongo_db)
+    for i in range(2):
+        c = cr.create(name=f"cat_{i}")
+        # Mark the category as recently used by bumping last_used_at.
+        mongo_db["categories"].update_one(
+            {"_id": _oid(c.id)},
+            {"$set": {"last_used_at": datetime.now(timezone.utc)}},
+        )
+    sel = CategorySelector(cr, er, _settings(cooldown=2), rng=random.Random(0))
+    with pytest.raises(NoAvailableCategoryError):
+        sel.select()
 
 
-def test_category_selector_skips_cooldown_when_alternatives_exist(tmp_db, session_factory):
-    with session_factory() as s:
-        cr = CategoryRepo(s)
-        jr = JobRepo(s)
-        hot = cr.get_or_create("hot")
-        hot.last_used_at = datetime.now(timezone.utc)
-        cold = cr.get_or_create("cold")  # never used
-        s.commit()
-        sel = CategorySelector(cr, jr, _make_settings(cooldown=2), rng=random.Random(0))
-        for _ in range(20):
-            assert sel.select().name == "cold"
+def test_category_selector_skips_cooldown_when_alternatives_exist(mongo_db):
+    cr = CategoryRepo(mongo_db)
+    er = ExecutionRepo(mongo_db)
+    hot = cr.create(name="hot")
+    mongo_db["categories"].update_one(
+        {"_id": _oid(hot.id)},
+        {"$set": {"last_used_at": datetime.now(timezone.utc)}},
+    )
+    cold = cr.create(name="cold")  # never used
+    sel = CategorySelector(cr, er, _settings(cooldown=2), rng=random.Random(0))
+    for _ in range(20):
+        assert sel.select().name == "cold"
 
 
-def test_category_selector_weighted_distribution(tmp_db, session_factory):
-    with session_factory() as s:
-        cr = CategoryRepo(s)
-        jr = JobRepo(s)
-        low = cr.get_or_create("low"); low.usage_count = 0
-        high = cr.get_or_create("high"); high.usage_count = 50
-        high.last_used_at = datetime.now(timezone.utc)
-        s.commit()
-        sel = CategorySelector(cr, jr, _make_settings(cooldown=0), rng=random.Random(99))
-        counts = Counter(sel.select().name for _ in range(3000))
-        assert counts["low"] > counts["high"] * 3
+def test_category_selector_weighted_distribution(mongo_db):
+    cr = CategoryRepo(mongo_db)
+    er = ExecutionRepo(mongo_db)
+    low = cr.create(name="low")
+    high = cr.create(name="high")
+    mongo_db["categories"].update_one(
+        {"_id": _oid(high.id)},
+        {"$set": {
+            "usage_count": 50,
+            "last_used_at": datetime.now(timezone.utc),
+        }},
+    )
+    sel = CategorySelector(cr, er, _settings(cooldown=0), rng=random.Random(99))
+    counts = Counter(sel.select().name for _ in range(3000))
+    assert counts["low"] > counts["high"] * 3
 
 
 # --- VideoSelector ----------------------------------------------------------
 
-def test_video_selector_covers_duration(tmp_db, session_factory):
-    with session_factory() as s:
-        cr = CategoryRepo(s)
-        vr = VideoRepo(s)
-        cat = cr.get_or_create("sea")
-        # Three 25s videos -> need 60s, so 3 will cover.
-        for i in range(3):
-            vr.get_or_create(cat.id, f"sea_{i}.mp4", 25.0)
-        s.commit()
-        sel = VideoSelector(vr, _make_settings(cooldown=0), rng=random.Random(0))
-        segments = sel.select_segments_for_duration(cat.id, target_duration=60.0)
-        assert sum(seg.duration_seconds for seg in segments) >= 60.0
-        # No duplicates when pool was big enough.
-        ids = [seg.video_id for seg in segments]
-        assert len(ids) == len(set(ids))
+def test_video_selector_covers_duration(mongo_db):
+    cr = CategoryRepo(mongo_db)
+    vr = VideoRepo(mongo_db)
+    cat = cr.create(name="sea")
+    for i in range(3):
+        vr.create(
+            category_id=cat.id, name=f"sea_{i}",
+            source_url=f"https://example.com/sea_{i}.mp4",
+            duration_seconds=25.0,
+        )
+    sel = VideoSelector(vr, _settings(cooldown=0), rng=random.Random(0))
+    segments = sel.select_segments_for_duration(cat.id, target_duration=60.0)
+    assert sum(seg.duration_seconds for seg in segments) >= 60.0
+    ids = [seg.video_id for seg in segments]
+    assert len(ids) == len(set(ids))
 
 
-def test_video_selector_reuse_when_pool_exhausted(tmp_db, session_factory):
-    with session_factory() as s:
-        cr = CategoryRepo(s)
-        vr = VideoRepo(s)
-        cat = cr.get_or_create("forest")
-        vr.get_or_create(cat.id, "forest_0.mp4", 15.0)
-        vr.get_or_create(cat.id, "forest_1.mp4", 15.0)
-        s.commit()
-        settings = Settings(allow_video_reuse_within_job=True, db_path="/tmp/_unused.db")
-        sel = VideoSelector(vr, settings, rng=random.Random(0))
-        segments = sel.select_segments_for_duration(cat.id, target_duration=60.0)
-        assert sum(seg.duration_seconds for seg in segments) >= 60.0
+def test_video_selector_reuse_when_pool_exhausted(mongo_db):
+    cr = CategoryRepo(mongo_db)
+    vr = VideoRepo(mongo_db)
+    cat = cr.create(name="forest")
+    vr.create(category_id=cat.id, name="forest_0",
+              source_url="https://example.com/f0.mp4", duration_seconds=15.0)
+    vr.create(category_id=cat.id, name="forest_1",
+              source_url="https://example.com/f1.mp4", duration_seconds=15.0)
+    settings = Settings(
+        allow_video_reuse_within_job=True,
+        mongodb_uri="mongodb://localhost/test",
+        mongodb_db_name="qvg_test",
+        cloudinary_cloud_name="test-cloud",
+        cloudinary_api_key="test-key",
+        cloudinary_api_secret="test-secret",
+    )
+    sel = VideoSelector(vr, settings, rng=random.Random(0))
+    segments = sel.select_segments_for_duration(cat.id, target_duration=60.0)
+    assert sum(seg.duration_seconds for seg in segments) >= 60.0
 
 
-def test_video_selector_strict_raises(tmp_db, session_factory):
-    with session_factory() as s:
-        cr = CategoryRepo(s)
-        vr = VideoRepo(s)
-        cat = cr.get_or_create("desert")
-        vr.get_or_create(cat.id, "desert_0.mp4", 10.0)
-        s.commit()
-        settings = Settings(allow_video_reuse_within_job=False, db_path="/tmp/_unused.db")
-        sel = VideoSelector(vr, settings, rng=random.Random(0))
-        with pytest.raises(InsufficientCategoryContentError):
-            sel.select_segments_for_duration(cat.id, target_duration=120.0)
+def test_video_selector_strict_raises(mongo_db):
+    cr = CategoryRepo(mongo_db)
+    vr = VideoRepo(mongo_db)
+    cat = cr.create(name="desert")
+    vr.create(category_id=cat.id, name="desert_0",
+              source_url="https://example.com/d0.mp4", duration_seconds=10.0)
+    settings = Settings(
+        allow_video_reuse_within_job=False,
+        mongodb_uri="mongodb://localhost/test",
+        mongodb_db_name="qvg_test",
+        cloudinary_cloud_name="test-cloud",
+        cloudinary_api_key="test-key",
+        cloudinary_api_secret="test-secret",
+    )
+    sel = VideoSelector(vr, settings, rng=random.Random(0))
+    with pytest.raises(InsufficientCategoryContentError):
+        sel.select_segments_for_duration(cat.id, target_duration=120.0)
+
+
+# --- Helper -----------------------------------------------------------------
+
+def _oid(id_str: str):
+    from bson import ObjectId
+    return ObjectId(id_str)
