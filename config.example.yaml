@@ -1,0 +1,33 @@
+# === Quran Video Generator – example configuration ===
+# Copy to config.yaml and adjust. Values can also be overridden by environment
+# variables (see .env.example). Environment variables take precedence.
+
+clip_duration: 60              # seconds – length of each generated clip
+clips_per_audio: 5             # max number of non-overlapping clips per audio
+resolution: "1080x1920"        # WIDTHxHEIGHT – vertical format for Shorts/Reels/TikTok
+fps: 30
+video_codec: "libx264"
+audio_codec: "aac"
+output_dir: "./output"
+temp_dir: "./temp"
+category_cooldown: 3           # exclude categories used in the last K generated clips
+allow_video_reuse_within_job: true   # if a category runs out of videos, allow reuse
+log_level: "INFO"              # DEBUG | INFO | WARNING | ERROR
+db_path: "./data/app.db"
+
+# Input folders (sane defaults – change if your layout differs)
+audios_dir: "./audios"
+videos_dir: "./videos"
+
+# Selection algorithm tuning
+selection:
+  recency_decay_minutes: 1440   # how fast recency penalty decays (24h)
+  usage_weight: 1.0             # weight applied to inverse usage_count score
+  recency_weight: 1.0           # weight applied to recency score
+
+# Logging
+logging:
+  log_dir: "./logs"
+  log_file: "app.log"
+  max_log_size_mb: 5
+  backup_count: 5
