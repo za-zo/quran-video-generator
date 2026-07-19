@@ -2,22 +2,37 @@
 # Copy to config.yaml and adjust. Values can also be overridden by environment
 # variables (see .env.example). Environment variables take precedence.
 
+# --- Cloud infrastructure (REQUIRED) ---
+# MongoDB Atlas connection string and database name.
+mongodb_uri: ""               # set via MONGODB_URI env var / GitHub secret
+mongodb_db_name: "quran_video_generator"
+
+# Cloudinary credentials for final MP4 upload.
+cloudinary_cloud_name: ""     # set via CLOUDINARY_CLOUD_NAME env var / GitHub secret
+cloudinary_api_key: ""        # set via CLOUDINARY_API_KEY env var / GitHub secret
+cloudinary_api_secret: ""     # set via CLOUDINARY_API_SECRET env var / GitHub secret
+
+# GitHub Actions run ID (auto-filled by the workflow; empty when local).
+github_run_id: ""
+
+# --- Clip generation ---
 clip_duration: 60              # seconds – length of each generated clip
 clips_per_audio: 5             # max number of non-overlapping clips per audio
+
+# --- Output video technical params ---
 resolution: "1080x1920"        # WIDTHxHEIGHT – vertical format for Shorts/Reels/TikTok
 fps: 30
 video_codec: "libx264"
 audio_codec: "aac"
+
+# --- Paths (local-only; GitHub Actions runner ephemeral storage) ---
 output_dir: "./output"
 temp_dir: "./temp"
+
+# --- Selection behaviour ---
 category_cooldown: 3           # exclude categories used in the last K generated clips
 allow_video_reuse_within_job: true   # if a category runs out of videos, allow reuse
 log_level: "INFO"              # DEBUG | INFO | WARNING | ERROR
-db_path: "./data/app.db"
-
-# Input folders (sane defaults – change if your layout differs)
-audios_dir: "./audios"
-videos_dir: "./videos"
 
 # Selection algorithm tuning
 selection:

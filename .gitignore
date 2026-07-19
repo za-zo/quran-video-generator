@@ -67,3 +67,15 @@ Thumbs.db
 .coverage
 htmlcov/
 .tox/
+
+# === Webapp (Next.js) ===
+webapp/node_modules/
+webapp/.next/
+webapp/out/
+webapp/build/
+webapp/dist/
+webapp/.env
+webapp/.env.local
+webapp/.env.*.local
+webapp/*.tsbuildinfo
+webapp/npm-debug.log*

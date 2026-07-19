@@ -9,6 +9,19 @@ Loads from (in order of increasing precedence):
 
 No configuration value is hardcoded anywhere else in the codebase – every
 module receives a :class:`Settings` instance via dependency injection.
+
+Cloud-native settings
+---------------------
+The pipeline runs in GitHub Actions and reads from / writes to cloud
+services exclusively:
+  * ``mongodb_uri`` + ``mongodb_db_name``: persistent single source of truth
+    for audios / categories / videos / executions.
+  * ``cloudinary_cloud_name`` / ``cloudinary_api_key`` /
+    ``cloudinary_api_secret``: where final MP4 outputs are uploaded.
+
+All four Cloudinary values plus ``mongodb_uri`` are required at runtime;
+missing values raise a clear configuration error rather than silently
+falling back to placeholders.
 """
 
 from __future__ import annotations
@@ -71,12 +84,10 @@ class Settings(BaseSettings):
     video_codec: str = Field(default="libx264")
     audio_codec: str = Field(default="aac")
 
-    # Paths
+    # Paths (local-only: temp working dir for FFmpeg intermediates,
+    # output dir for the final MP4 before Cloudinary upload)
     output_dir: str = "./output"
     temp_dir: str = "./temp"
-    audios_dir: str = "./audios"
-    videos_dir: str = "./videos"
-    db_path: str = "./data/app.db"
 
     # Selection behaviour
     category_cooldown: int = Field(default=3, ge=0)
@@ -84,6 +95,22 @@ class Settings(BaseSettings):
 
     # Logging
     log_level: str = "INFO"
+
+    # --- Cloud-native infrastructure ----------------------------------------
+
+    # MongoDB Atlas – single source of truth for all metadata.
+    # Required: a clear error is raised at startup if missing.
+    mongodb_uri: str = Field(default="", description="MongoDB Atlas connection string")
+    mongodb_db_name: str = Field(default="quran_video_generator")
+
+    # Cloudinary – where final MP4s are uploaded.
+    cloudinary_cloud_name: str = Field(default="")
+    cloudinary_api_key: str = Field(default="")
+    cloudinary_api_secret: str = Field(default="")
+
+    # GitHub Actions run ID (set automatically by the workflow; empty when
+    # running locally). Stored on each execution document for traceability.
+    github_run_id: str = Field(default="")
 
     # Nested config objects
     selection: SelectionConfig = Field(default_factory=SelectionConfig)
@@ -120,12 +147,36 @@ class Settings(BaseSettings):
     def _ensure_dirs_exist(self) -> "Settings":
         # Best-effort creation of runtime directories. Failures are tolerated
         # because some CLI commands (e.g. `stats`) don't need them all.
-        for p in (self.output_dir, self.temp_dir, self.db_path, self.logging.log_dir):
+        for p in (self.output_dir, self.temp_dir, self.logging.log_dir):
             try:
                 Path(p).parent.mkdir(parents=True, exist_ok=True)
             except OSError:
                 pass
         return self
+
+    def require_cloud_credentials(self) -> None:
+        """Raise a clear error if any cloud credential is missing.
+
+        Called at the start of any command that actually needs Mongo or
+        Cloudinary (``generate``, ``init-db``, ``stats``). Lets pure
+        config-validation code paths still construct a Settings without
+        crashing.
+        """
+        missing: list[str] = []
+        if not self.mongodb_uri:
+            missing.append("MONGODB_URI")
+        if not self.cloudinary_cloud_name:
+            missing.append("CLOUDINARY_CLOUD_NAME")
+        if not self.cloudinary_api_key:
+            missing.append("CLOUDINARY_API_KEY")
+        if not self.cloudinary_api_secret:
+            missing.append("CLOUDINARY_API_SECRET")
+        if missing:
+            raise RuntimeError(
+                "Missing required cloud configuration: " + ", ".join(missing)
+                + ". Set them via environment variables (or .env / GitHub"
+                " Actions secrets). See README.md for the full list."
+            )
 
     # --- Derived helpers ----------------------------------------------------
 
@@ -154,17 +205,6 @@ def _load_yaml_into_env(yaml_path: Path) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise ValueError(f"config file {yaml_path} must contain a top-level mapping")
     return data
-
-
-def _deep_merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
-    """Recursively merge ``overlay`` on top of ``base``."""
-    merged = dict(base)
-    for k, v in overlay.items():
-        if isinstance(v, dict) and isinstance(merged.get(k), dict):
-            merged[k] = _deep_merge(merged[k], v)
-        else:
-            merged[k] = v
-    return merged
 
 
 @lru_cache(maxsize=1)

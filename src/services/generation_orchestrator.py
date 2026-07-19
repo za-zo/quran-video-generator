@@ -4,19 +4,25 @@ Coordinates the full pipeline end-to-end:
 
     for each audio in batch:
         select audio (weighted least-used)
+        download the source audio to a per-clip temp dir
         extract N non-overlapping clips
         for each clip:
+            create an execution document (status=pending)
             select category (weighted + cooldown)
             select videos until duration covered
+            download the selected videos to the same temp dir
             build final MP4 via VideoProcessor
-            on success: update usage counts, mark job success
-            on failure: mark job failed, log, continue
+            upload the MP4 to Cloudinary
+            on success: update usage counts, mark execution success
+                        with the Cloudinary URL/metadata
+            on failure: mark execution failed, log, continue
 
 Single-clip failures never crash the batch (per spec §7). Usage counters are
-bumped only after a successful export.
+bumped only after a successful export + upload.
 
 The orchestrator depends on ABSTRACTIONS only (repositories, selectors,
-processor) – never on concrete FFmpeg/SQL details.
+processor, uploader, downloader) – never on concrete FFmpeg/Mongo/HTTP
+details.
 """
 
 from __future__ import annotations
@@ -25,10 +31,16 @@ import random
 from datetime import datetime
 from pathlib import Path
 
-from sqlalchemy.orm import Session
+from pymongo.database import Database
 
 from src.config.settings import Settings
-from src.database.repository import AudioRepo, CategoryRepo, JobRepo, VideoRepo
+from src.database.repository import (
+    AudioRepo,
+    CategoryRepo,
+    ExecutionRepo,
+    VideoRepo,
+    ensure_indexes,
+)
 from src.exceptions import AppBaseException, InsufficientAudioDurationError
 from src.models import AudioClip, AudioRecord, GenerationJobResult
 from src.services.audio_selector import AudioSelector
@@ -36,6 +48,12 @@ from src.services.category_selector import CategorySelector
 from src.services.clip_extractor import ClipExtractor
 from src.services.video_processor import VideoProcessor
 from src.services.video_selector import VideoSelector
+from src.utils import media_downloader
+from src.utils.cloudinary_uploader import (
+    CloudinaryUploadError,
+    upload_video,
+)
+from src.utils.file_utils import temp_workdir
 from src.utils.logger import get_logger
 
 log = get_logger(__name__)
@@ -46,7 +64,7 @@ class GenerationOrchestrator:
 
     def __init__(
         self,
-        session: Session,
+        db: Database,
         settings: Settings,
         *,
         audio_selector: AudioSelector | None = None,
@@ -56,20 +74,20 @@ class GenerationOrchestrator:
         video_processor: VideoProcessor | None = None,
         rng: random.Random | None = None,
     ) -> None:
-        self.session = session
+        self.db = db
         self.settings = settings
         self.rng = rng or random.Random()
 
-        self.audio_repo = AudioRepo(session)
-        self.category_repo = CategoryRepo(session)
-        self.video_repo = VideoRepo(session)
-        self.job_repo = JobRepo(session)
+        self.audio_repo = AudioRepo(db)
+        self.category_repo = CategoryRepo(db)
+        self.video_repo = VideoRepo(db)
+        self.execution_repo = ExecutionRepo(db)
 
         self.audio_selector = audio_selector or AudioSelector(
             self.audio_repo, rng=self.rng, selection_cfg=settings.selection,
         )
         self.category_selector = category_selector or CategorySelector(
-            self.category_repo, self.job_repo, settings,
+            self.category_repo, self.execution_repo, settings,
             rng=self.rng, selection_cfg=settings.selection,
         )
         self.video_selector = video_selector or VideoSelector(
@@ -82,13 +100,13 @@ class GenerationOrchestrator:
     # --- Batch entry point -------------------------------------------------
 
     def run_batch(self, audio_count: int) -> list[GenerationJobResult]:
-        """Generate clips for up to ``audio_count`` distinct audios.
+        """Generate clips for up to ``audio_count`` distinct audios."""
+        # Ensure indexes exist (idempotent) so a fresh cluster behaves
+        # the same as a long-running one.
+        ensure_indexes(self.db)
 
-        Each audio is processed in its own transaction so a failure on audio
-        N doesn't roll back successful jobs from audios 1..N-1.
-        """
         results: list[GenerationJobResult] = []
-        used_audio_ids: set[int] = set()
+        used_audio_ids: set[str] = set()
 
         for i in range(audio_count):
             try:
@@ -123,6 +141,8 @@ class GenerationOrchestrator:
             log.error("clip extraction failed for audio id=%s: %s", audio.id, exc)
             return results
 
+        # Each clip gets its own temp dir so a failure on clip N doesn't
+        # leave half-downloaded files for clip N+1.
         for clip in clips:
             result = self._process_clip(audio, clip)
             results.append(result)
@@ -131,16 +151,21 @@ class GenerationOrchestrator:
     # --- Per-clip pipeline --------------------------------------------------
 
     def _process_clip(self, audio: AudioRecord, clip: AudioClip) -> GenerationJobResult:
-        job = self.job_repo.create(
+        # Create the execution document up front so even a failed download
+        # leaves a traceable record.
+        exec_doc = self.execution_repo.create(
             audio_id=audio.id,
+            slice_index=clip.index,
             clip_start=clip.start_seconds,
             clip_end=clip.end_seconds,
+            clip_duration=clip.duration_seconds,
+            github_run_id=self.settings.github_run_id,
             status="pending",
         )
-        self.session.commit()
+        execution_id = str(exec_doc["_id"])
 
         result = GenerationJobResult(
-            job_id=job.id,
+            job_id=execution_id,
             audio_id=audio.id,
             clip_index=clip.index,
             clip_start=clip.start_seconds,
@@ -160,62 +185,125 @@ class GenerationOrchestrator:
             )
             result.selected_video_ids = [s.video_id for s in segments]
 
-            # 3. Build the final MP4.
-            output_path = self._build_output_path(audio, clip)
-            self.video_processor.build_clip(audio, clip, segments, output_path)
+            # Persist the selection so the webapp can show what was chosen
+            # even if the next steps fail.
+            self.execution_repo.mark_selection(
+                execution_id, category.id, result.selected_video_ids
+            )
+
+            # 3. Download all media needed for this clip into a temp dir,
+            #    then run FFmpeg, then upload to Cloudinary. Everything
+            #    inside one temp_workdir so cleanup is automatic.
+            with temp_workdir(
+                prefix=f"clip_{clip.audio_id}_{clip.index}_",
+                base_dir=self.settings.temp_dir,
+            ) as tmp:
+                # 3a. Download the source audio (just the bytes we need).
+                audio_local = media_downloader.download_to_temp(
+                    audio.source_url, tmp,
+                    expected_extension=".mp3",
+                    filename_hint=f"audio_{audio.id}",
+                    expect_audio=True,
+                )
+
+                # 3b. Download each selected video.
+                for seg in segments:
+                    seg.local_path = media_downloader.download_to_temp(
+                        seg.source_url, tmp,
+                        expected_extension=".mp4",
+                        filename_hint=f"video_{seg.video_id}",
+                        expect_video=True,
+                    )
+
+                # 3c. Build the final MP4 locally.
+                output_path = self._build_output_path(audio, clip, execution_id)
+                self.video_processor.build_clip(
+                    audio, audio_local, clip, segments, output_path,
+                )
+
+                # 3d. Upload to Cloudinary.
+                upload = upload_video(output_path, execution_id, self.settings)
+
+                # 3e. Persist success + Cloudinary metadata.
+                self.execution_repo.mark_success(
+                    execution_id,
+                    cloudinary_url=upload.secure_url,
+                    cloudinary_public_id=upload.public_id,
+                    duration_seconds=upload.duration_seconds,
+                    width=upload.width,
+                    height=upload.height,
+                )
+
+                result.cloudinary_url = upload.secure_url
+                result.cloudinary_public_id = upload.public_id
+                result.output_path = output_path
+                result.status = "success"
+                log.info(
+                    "clip generated: exec=%s audio=%s clip=%d -> %s",
+                    execution_id, audio.id, clip.index, upload.secure_url,
+                )
+
+                # The local output file is inside temp_workdir scope and
+                # will be cleaned up on context exit. We let that happen
+                # automatically rather than deleting prematurely, in case
+                # a future enhancement wants to do post-upload verification.
 
             # 4. Persist usage updates (only after success).
             self._mark_used(audio.id, category.id, result.selected_video_ids)
-            self.job_repo.mark_success(job.id, str(output_path))
-            self.session.commit()
 
-            result.output_path = output_path
-            result.status = "success"
-            log.info(
-                "clip generated: job=%s audio=%s clip=%d -> %s",
-                job.id, audio.id, clip.index, output_path,
-            )
         except AppBaseException as exc:
-            self.session.rollback()
-            self._fail_job(job.id, exc)
+            self._fail_execution(execution_id, exc)
             result.status = "failed"
             result.error_message = str(exc)
             log.error(
-                "clip failed: job=%s audio=%s clip=%d: %s",
-                job.id, audio.id, clip.index, exc,
+                "clip failed: exec=%s audio=%s clip=%d: %s",
+                execution_id, audio.id, clip.index, exc,
             )
         except Exception as exc:  # pragma: no cover - safety net
-            self.session.rollback()
-            self._fail_job(job.id, exc)
+            self._fail_execution(execution_id, exc)
             result.status = "failed"
             result.error_message = str(exc)
             log.exception(
-                "unexpected error for job=%s audio=%s clip=%d",
-                job.id, audio.id, clip.index,
+                "unexpected error for exec=%s audio=%s clip=%d",
+                execution_id, audio.id, clip.index,
             )
         return result
 
     # --- Helpers ------------------------------------------------------------
 
-    def _mark_used(self, audio_id: int, category_id: int, video_ids: list[int]) -> None:
-        self.audio_repo.mark_used(audio_id)
-        self.category_repo.mark_used(category_id)
-        self.video_repo.mark_used_many(video_ids)
+    def _mark_used(self, audio_id: str, category_id: str, video_ids: list[str]) -> None:
+        """Bump usage counters after a successful clip.
 
-    def _fail_job(self, job_id: int, exc: BaseException) -> None:
+        Issued as sequential writes without an explicit transaction; see
+        the module docstring in :mod:`src.database.repository` for the
+        consistency tradeoff.
+        """
         try:
-            # Fresh transaction for the failure update.
-            self.job_repo.mark_failed(job_id, str(exc))
-            self.session.commit()
+            self.audio_repo.mark_used(audio_id)
+            self.category_repo.mark_used(category_id)
+            self.video_repo.mark_used_many(video_ids)
         except Exception:
-            self.session.rollback()
-            log.exception("could not persist failure status for job=%s", job_id)
+            # Don't crash the clip just because a counter didn't bump.
+            log.exception("failed to bump usage counters (non-fatal)")
 
-    def _build_output_path(self, audio: AudioRecord, clip: AudioClip) -> Path:
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    def _fail_execution(self, execution_id: str, exc: BaseException) -> None:
+        try:
+            self.execution_repo.mark_failed(execution_id, str(exc))
+        except Exception:
+            log.exception("could not persist failure status for exec=%s", execution_id)
+
+    def _build_output_path(
+        self, audio: AudioRecord, clip: AudioClip, execution_id: str
+    ) -> Path:
+        """Build the local output path for the final MP4.
+
+        Uses the execution_id (short suffix) so the file is traceable to
+        its MongoDB document even after the temp dir is gone.
+        """
         out_dir = Path(self.settings.output_dir)
         out_dir.mkdir(parents=True, exist_ok=True)
-        return out_dir / f"{audio.id}_{clip.index}_{ts}.mp4"
+        short_id = execution_id[-8:] if len(execution_id) >= 8 else execution_id
+        return out_dir / f"{audio.id}_{clip.index}_{short_id}.mp4"
 
 
 __all__ = ["GenerationOrchestrator"]

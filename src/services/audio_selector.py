@@ -31,23 +31,10 @@ class AudioSelector(BaseSelector[AudioRecord]):
         super().__init__(rng=rng, selection_cfg=selection_cfg)
         self.audio_repo = audio_repo
 
-    def _candidates(self, exclude_ids: set[int] | None = None) -> list[AudioRecord]:
+    def _candidates(self, exclude_ids: set[str] | None = None) -> list[AudioRecord]:
         exclude_ids = exclude_ids or set()
         rows = self.audio_repo.list_all()
-        out: list[AudioRecord] = []
-        for a in rows:
-            if a.id in exclude_ids:
-                continue
-            out.append(
-                AudioRecord(
-                    id=a.id,
-                    filename=a.filename,
-                    duration_seconds=a.duration_seconds,
-                    usage_count=a.usage_count,
-                    last_used_at=a.last_used_at,
-                )
-            )
-        return out
+        return [a for a in rows if a.id not in exclude_ids]
 
     def _usage(self, candidate: AudioRecord) -> int:
         return candidate.usage_count
@@ -55,7 +42,7 @@ class AudioSelector(BaseSelector[AudioRecord]):
     def _last_used(self, candidate: AudioRecord) -> datetime | None:
         return candidate.last_used_at
 
-    def select(self, exclude_ids: set[int] | None = None) -> AudioRecord:
+    def select(self, exclude_ids: set[str] | None = None) -> AudioRecord:
         """Pick one audio record.
 
         ``exclude_ids`` lets the orchestrator avoid re-selecting an audio

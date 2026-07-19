@@ -43,22 +43,41 @@ def _settings() -> Settings:
         audio_codec="aac",
         output_dir="./output",
         temp_dir="./temp",
-        db_path="/tmp/_unused.db",
+        mongodb_uri="mongodb://localhost/test",
+        mongodb_db_name="qvg_test",
+        cloudinary_cloud_name="test-cloud",
+        cloudinary_api_key="test-key",
+        cloudinary_api_secret="test-secret",
     )
 
 
 def _audio() -> AudioRecord:
-    return AudioRecord(id=1, filename="/tmp/audio.mp3", duration_seconds=300.0)
+    return AudioRecord(
+        id="audio-1",
+        name="audio.mp3",
+        source_url="https://example.com/audio.mp3",
+        duration_seconds=300.0,
+    )
 
 
 def _clip() -> AudioClip:
-    return AudioClip(audio_id=1, index=0, start_seconds=10.0, end_seconds=70.0)
+    return AudioClip(audio_id="audio-1", index=0, start_seconds=10.0, end_seconds=70.0)
 
 
 def _segments() -> list[VideoSegment]:
     return [
-        VideoSegment(video_id=1, filename="/tmp/v1.mp4", duration_seconds=35.0),
-        VideoSegment(video_id=2, filename="/tmp/v2.mp4", duration_seconds=35.0),
+        VideoSegment(
+            video_id="vid-1",
+            name="v1.mp4",
+            source_url="https://example.com/v1.mp4",
+            duration_seconds=35.0,
+        ),
+        VideoSegment(
+            video_id="vid-2",
+            name="v2.mp4",
+            source_url="https://example.com/v2.mp4",
+            duration_seconds=35.0,
+        ),
     ]
 
 
@@ -228,9 +247,11 @@ def test_extract_audio_clip_command(monkeypatch, tmp_path):
     processor = VideoProcessor(settings)
     audio = _audio()
     clip = _clip()
-    Path(audio.filename).write_bytes(b"")
+    # extract_audio_clip takes the local audio file path (already downloaded).
+    audio_path = tmp_path / "audio.mp3"
+    audio_path.write_bytes(b"")
     dst = tmp_path / "clip.m4a"
-    processor.extract_audio_clip(audio, clip, dst)
+    processor.extract_audio_clip(audio_path, clip, dst)
     cmd = captured[0]
     assert "-ss" in cmd and cmd[cmd.index("-ss") + 1] == "10.000"
     assert "-t" in cmd and cmd[cmd.index("-t") + 1] == "60.000"

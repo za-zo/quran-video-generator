@@ -38,21 +38,10 @@ class VideoSelector(BaseSelector[VideoRecord]):
         self.video_repo = video_repo
         self.allow_reuse = settings.allow_video_reuse_within_job
 
-    def _candidates(self, category_id: int, exclude_ids: set[int] | None = None) -> list[VideoRecord]:
+    def _candidates(self, category_id: str, exclude_ids: set[str] | None = None) -> list[VideoRecord]:
         exclude_ids = exclude_ids or set()
         rows = self.video_repo.list_for_category(category_id)
-        return [
-            VideoRecord(
-                id=v.id,
-                category_id=v.category_id,
-                filename=v.filename,
-                duration_seconds=v.duration_seconds,
-                usage_count=v.usage_count,
-                last_used_at=v.last_used_at,
-            )
-            for v in rows
-            if v.id not in exclude_ids
-        ]
+        return [v for v in rows if v.id not in exclude_ids]
 
     def _usage(self, candidate: VideoRecord) -> int:
         return candidate.usage_count
@@ -62,7 +51,7 @@ class VideoSelector(BaseSelector[VideoRecord]):
 
     # --- Public API ---------------------------------------------------------
 
-    def select_segments_for_duration(self, category_id: int, target_duration: float) -> list[VideoSegment]:
+    def select_segments_for_duration(self, category_id: str, target_duration: float) -> list[VideoSegment]:
         """Return a list of :class:`VideoSegment` whose total duration >= ``target_duration``.
 
         The same video is never selected twice in the same call unless reuse
@@ -78,7 +67,7 @@ class VideoSelector(BaseSelector[VideoRecord]):
             )
 
         chosen: list[VideoSegment] = []
-        chosen_ids: set[int] = set()
+        chosen_ids: set[str] = set()
         pool = list(available)
 
         while _sum_duration(chosen) < target_duration:
@@ -96,7 +85,12 @@ class VideoSelector(BaseSelector[VideoRecord]):
                     )
                     # Cycle through already-chosen videos in order.
                     nxt = chosen[len(chosen) % len(chosen)]
-                    chosen.append(VideoSegment(nxt.video_id, nxt.filename, nxt.duration_seconds))
+                    chosen.append(VideoSegment(
+                        video_id=nxt.video_id,
+                        name=nxt.name,
+                        source_url=nxt.source_url,
+                        duration_seconds=nxt.duration_seconds,
+                    ))
                     continue
                 raise InsufficientCategoryContentError(
                     f"category id={category_id} cannot cover target duration "
@@ -109,7 +103,8 @@ class VideoSelector(BaseSelector[VideoRecord]):
             chosen.append(
                 VideoSegment(
                     video_id=picked.id,
-                    filename=picked.filename,
+                    name=picked.name,
+                    source_url=picked.source_url,
                     duration_seconds=picked.duration_seconds,
                 )
             )
