@@ -10,6 +10,7 @@ Coordinates the full pipeline end-to-end:
         for each clip:
             create an execution document (status=pending)
             select category (weighted + cooldown)
+            probe videos in category if duration is 0 and update MongoDB
             select videos until duration covered
             download the selected videos to a per-clip temp dir
             build final MP4 via VideoProcessor
@@ -20,10 +21,6 @@ Coordinates the full pipeline end-to-end:
 
 Single-clip failures never crash the batch (per spec §7). Usage counters are
 bumped only after a successful export + upload.
-
-The orchestrator depends on ABSTRACTIONS only (repositories, selectors,
-processor, uploader, downloader) – never on concrete FFmpeg/Mongo/HTTP
-details.
 """
 
 from __future__ import annotations
@@ -104,8 +101,6 @@ class GenerationOrchestrator:
 
     def run_batch(self, audio_count: int) -> list[GenerationJobResult]:
         """Generate clips for up to ``audio_count`` distinct audios."""
-        # Ensure indexes exist (idempotent) so a fresh cluster behaves
-        # the same as a long-running one.
         ensure_indexes(self.db)
 
         results: list[GenerationJobResult] = []
@@ -122,7 +117,6 @@ class GenerationOrchestrator:
             audio_results = self._process_audio(audio)
             results.extend(audio_results)
 
-        # Summary
         succeeded = sum(1 for r in results if r.status == "success")
         failed = sum(1 for r in results if r.status == "failed")
         log.info(
@@ -136,8 +130,6 @@ class GenerationOrchestrator:
     def _process_audio(self, audio: AudioRecord) -> list[GenerationJobResult]:
         results: list[GenerationJobResult] = []
         
-        # We download the audio once per audio, rather than once per clip,
-        # to save bandwidth and time.
         with temp_workdir(prefix=f"audio_{audio.id}_", base_dir=self.settings.temp_dir) as audio_tmp:
             try:
                 audio_local = media_downloader.download_to_temp(
@@ -147,7 +139,6 @@ class GenerationOrchestrator:
                     expect_audio=True,
                 )
 
-                # If duration is unknown (0), probe it from the downloaded file and update DB.
                 if audio.duration_seconds <= 0:
                     try:
                         probe = ff.validate_media(audio_local, expect_audio=True)
@@ -167,8 +158,6 @@ class GenerationOrchestrator:
                     log.error("clip extraction failed for audio id=%s: %s", audio.id, exc)
                     return results
 
-                # Each clip gets its own temp dir so a failure on clip N doesn't
-                # leave half-downloaded files for clip N+1.
                 for clip in clips:
                     result = self._process_clip(audio, audio_local, clip)
                     results.append(result)
@@ -182,8 +171,6 @@ class GenerationOrchestrator:
     # --- Per-clip pipeline --------------------------------------------------
 
     def _process_clip(self, audio: AudioRecord, audio_local_path: Path, clip: AudioClip) -> GenerationJobResult:
-        # Create the execution document up front so even a failed download
-        # leaves a traceable record.
         exec_doc = self.execution_repo.create(
             audio_id=audio.id,
             slice_index=clip.index,
@@ -209,6 +196,9 @@ class GenerationOrchestrator:
             category = self.category_selector.select()
             result.selected_category_id = category.id
 
+            # 1.5. Probe videos with unknown durations so the selector works correctly.
+            self._ensure_video_durations(category.id)
+
             # 2. Select videos until duration covered.
             segments = self.video_selector.select_segments_for_duration(
                 category_id=category.id,
@@ -216,15 +206,10 @@ class GenerationOrchestrator:
             )
             result.selected_video_ids = [s.video_id for s in segments]
 
-            # Persist the selection so the webapp can show what was chosen
-            # even if the next steps fail.
             self.execution_repo.mark_selection(
                 execution_id, category.id, result.selected_video_ids
             )
 
-            # 3. Download all media needed for this clip into a temp dir,
-            #    then run FFmpeg, then upload to Cloudinary. Everything
-            #    inside one temp_workdir so cleanup is automatic.
             with temp_workdir(
                 prefix=f"clip_{clip.audio_id}_{clip.index}_",
                 base_dir=self.settings.temp_dir,
@@ -277,7 +262,7 @@ class GenerationOrchestrator:
                 "clip failed: exec=%s audio=%s clip=%d: %s",
                 execution_id, audio.id, clip.index, exc,
             )
-        except Exception as exc:  # pragma: no cover - safety net
+        except Exception as exc:
             self._fail_execution(execution_id, exc)
             result.status = "failed"
             result.error_message = str(exc)
@@ -289,19 +274,35 @@ class GenerationOrchestrator:
 
     # --- Helpers ------------------------------------------------------------
 
-    def _mark_used(self, audio_id: str, category_id: str, video_ids: list[str]) -> None:
-        """Bump usage counters after a successful clip.
+    def _ensure_video_durations(self, category_id: str) -> None:
+        """Probe and update duration for any video in the category marked as 0.0s."""
+        videos = self.video_repo.list_for_category(category_id)
+        unprobed = [v for v in videos if v.duration_seconds <= 0]
+        if not unprobed:
+            return
 
-        Issued as sequential writes without an explicit transaction; see
-        the module docstring in :mod:`src.database.repository` for the
-        consistency tradeoff.
-        """
+        log.info("Found %d video(s) with unknown duration in category %s. Probing...", len(unprobed), category_id)
+        with temp_workdir(prefix=f"probe_{category_id}_", base_dir=self.settings.temp_dir) as tmp:
+            for v in unprobed:
+                try:
+                    local = media_downloader.download_to_temp(
+                        v.source_url, tmp,
+                        expected_extension=".mp4",
+                        filename_hint=f"probe_{v.id}",
+                        expect_video=True,
+                    )
+                    probe = ff.validate_media(local, expect_video=True)
+                    self.video_repo.update_duration(v.id, probe.duration_seconds)
+                    log.info("Video id=%s probed duration=%.2fs", v.id, probe.duration_seconds)
+                except Exception as exc:
+                    log.error("Failed to probe video id=%s: %s", v.id, exc)
+
+    def _mark_used(self, audio_id: str, category_id: str, video_ids: list[str]) -> None:
         try:
             self.audio_repo.mark_used(audio_id)
             self.category_repo.mark_used(category_id)
             self.video_repo.mark_used_many(video_ids)
         except Exception:
-            # Don't crash the clip just because a counter didn't bump.
             log.exception("failed to bump usage counters (non-fatal)")
 
     def _fail_execution(self, execution_id: str, exc: BaseException) -> None:
@@ -313,11 +314,6 @@ class GenerationOrchestrator:
     def _build_output_path(
         self, audio: AudioRecord, clip: AudioClip, execution_id: str
     ) -> Path:
-        """Build the local output path for the final MP4.
-
-        Uses the execution_id (short suffix) so the file is traceable to
-        its MongoDB document even after the temp dir is gone.
-        """
         out_dir = Path(self.settings.output_dir)
         out_dir.mkdir(parents=True, exist_ok=True)
         short_id = execution_id[-8:] if len(execution_id) >= 8 else execution_id

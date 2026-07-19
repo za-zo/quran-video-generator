@@ -66,6 +66,23 @@ class VideoSelector(BaseSelector[VideoRecord]):
                 f"category id={category_id} has no videos registered"
             )
 
+        # Safeguard: If any videos have unknown duration (0.0s), we cannot reliably 
+        # sum durations to meet the target. Return up to 4 videos to avoid infinite loops.
+        if any(v.duration_seconds <= 0 for v in available):
+            log.warning(
+                "Some videos in category id=%s have unknown duration (0.0s). "
+                "Returning up to 4 videos without duration check to avoid infinite loop.", category_id
+            )
+            picked = available[:4]
+            return [
+                VideoSegment(
+                    video_id=v.id,
+                    name=v.name,
+                    source_url=v.source_url,
+                    duration_seconds=v.duration_seconds,
+                ) for v in picked
+            ]
+
         chosen: list[VideoSegment] = []
         chosen_ids: set[str] = set()
         pool = list(available)
