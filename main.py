@@ -35,7 +35,8 @@ from src.database.mongo_client import get_db, ping, reset_client
 from src.database.repository import (
     AudioRepo,
     CategoryRepo,
-    ExecutionRepo,
+    ExecutionRunRepo,
+    ExecutionSliceRepo,
     VideoRepo,
     ensure_indexes,
 )
@@ -61,12 +62,13 @@ def cmd_init_db(args: argparse.Namespace, settings: Settings) -> int:
     audio_repo = AudioRepo(db)
     category_repo = CategoryRepo(db)
     video_repo = VideoRepo(db)
-    execution_repo = ExecutionRepo(db)
+    run_repo = ExecutionRunRepo(db)
     print("MongoDB ready. Indexes ensured.")
     print(f"  audios:      {len(audio_repo.list_all())}")
     print(f"  categories:  {len(category_repo.list_all())}")
     print(f"  videos:      {sum(len(video_repo.list_for_category(c.id)) for c in category_repo.list_all())}")
-    print(f"  executions:  {sum(execution_repo.count_by_status().values())}")
+    runs = run_repo.list_recent(limit=1000)
+    print(f"  runs:        {len(runs)}")
     return 0
 
 
@@ -80,7 +82,6 @@ def cmd_stats(args: argparse.Namespace, settings: Settings) -> int:
     audio_repo = AudioRepo(db)
     category_repo = CategoryRepo(db)
     video_repo = VideoRepo(db)
-    execution_repo = ExecutionRepo(db)
 
     print("=" * 70)
     print("AUDIOS")
@@ -108,12 +109,11 @@ def cmd_stats(args: argparse.Namespace, settings: Settings) -> int:
             print(f"{v.id:<26}  {c.id:<26}  {v.usage_count:>5}  {v.duration_seconds:>7.1f}s  {v.name}")
 
     print("\n" + "=" * 70)
-    print("EXECUTIONS")
+    print("EXECUTION RUNS")
     print("=" * 70)
-    counts = execution_repo.count_by_status()
-    for status, n in sorted(counts.items()):
-        print(f"  {status:<10} {n}")
-    print(f"  total       {sum(counts.values())}")
+    runs = db["executions"].find({}).sort("created_at", -1)
+    for run in runs:
+        print(f"  {str(run['_id'])[-8:]} | {run.get('status', 'unknown'):<10} | Slices: {run.get('success_count',0)}/{run.get('total_slices',0)} | Run: {run.get('github_run_id', 'N/A')}")
 
     return 0
 
@@ -150,22 +150,18 @@ def cmd_generate(args: argparse.Namespace, settings: Settings) -> int:
     db = get_db()
 
     # --- Graceful shutdown handler ---
-    # If GitHub Actions cancels the job or a user presses Ctrl+C, we catch
-    # the signal and mark any pending executions for this run as 'canceled'.
-    # This targets ONLY the current run, so concurrent workflows are safe.
     def handle_interrupt(signum, frame):
         sig_name = signal.Signals(signum).name
-        log.warning("Received %s. Marking pending executions as canceled...", sig_name)
+        log.warning("Received %s. Marking run and pending slices as canceled...", sig_name)
         try:
-            res = db["executions"].update_many(
-                {"status": "pending", "github_run_id": settings.github_run_id},
-                {"$set": {
-                    "status": "canceled",
-                    "error_message": f"Run interrupted by {sig_name} signal.",
-                    "completed_at": datetime.now(timezone.utc)
-                }}
-            )
-            log.info("Marked %d pending execution(s) as canceled.", res.modified_count)
+            runs = db["executions"].find({"status": "running", "github_run_id": settings.github_run_id})
+            for run in runs:
+                db["executions"].update_one({"_id": run["_id"]}, {"$set": {"status": "canceled", "completed_at": datetime.now(timezone.utc)}})
+                db["execution_slices"].update_many(
+                    {"execution_id": run["_id"], "status": "pending"},
+                    {"$set": {"status": "canceled", "error_message": f"Run interrupted by {sig_name} signal.", "completed_at": datetime.now(timezone.utc)}}
+                )
+            log.info("Marked run and pending slices as canceled.")
         except Exception as exc:
             log.error("Failed to mark executions as canceled: %s", exc)
         sys.exit(1)

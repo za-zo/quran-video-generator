@@ -4,12 +4,10 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { ConfirmDialog } from "./ConfirmDialog";
 
-export function AudioForm({ audio }: { audio?: { _id: string; name: string; source_url: string; duration_seconds: number } }) {
+export function CategoryForm({ category }: { category?: { _id: string; name: string } }) {
   const router = useRouter();
-  const isNew = !audio;
-  const [name, setName] = useState(audio?.name ?? "");
-  const [sourceUrl, setSourceUrl] = useState(audio?.source_url ?? "");
-  const [duration, setDuration] = useState(audio?.duration_seconds?.toString() ?? "");
+  const isNew = !category;
+  const [name, setName] = useState(category?.name ?? "");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -19,26 +17,12 @@ export function AudioForm({ audio }: { audio?: { _id: string; name: string; sour
     setError(null);
     setSubmitting(true);
 
-    const payload: Record<string, unknown> = {
-      name: name.trim(),
-      source_url: sourceUrl.trim(),
-    };
-    if (duration) {
-      const d = Number(duration);
-      if (isNaN(d) || d < 0) {
-        setError("duration must be a non-negative number");
-        setSubmitting(false);
-        return;
-      }
-      payload.duration_seconds = d;
-    }
-
     try {
-      const url = isNew ? "/api/audios" : `/api/audios/${audio!._id}`;
+      const url = isNew ? "/api/categories" : `/api/categories/${category!._id}`;
       const res = await fetch(url, {
         method: isNew ? "POST" : "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ name: name.trim() }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
@@ -47,7 +31,8 @@ export function AudioForm({ audio }: { audio?: { _id: string; name: string; sour
         return;
       }
       if (isNew) {
-        router.push("/audios");
+        const result = await res.json();
+        router.push(`/categories/${result.id}/videos`);
       } else {
         router.refresh();
       }
@@ -61,14 +46,14 @@ export function AudioForm({ audio }: { audio?: { _id: string; name: string; sour
   async function onDelete() {
     setSubmitting(true);
     try {
-      const res = await fetch(`/api/audios/${audio!._id}`, { method: "DELETE" });
+      const res = await fetch(`/api/categories/${category!._id}`, { method: "DELETE" });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         setError(body.error || `delete failed (${res.status})`);
         setSubmitting(false);
         return;
       }
-      router.push("/audios");
+      router.push("/categories");
     } catch (err) {
       setError(String(err));
       setSubmitting(false);
@@ -77,7 +62,7 @@ export function AudioForm({ audio }: { audio?: { _id: string; name: string; sour
 
   return (
     <>
-      <form onSubmit={onSubmit} className="space-y-6 max-w-2xl">
+      <form onSubmit={onSubmit} className="space-y-6 max-w-lg">
         <div>
           <label className="block eyebrow mb-2">
             Name<span className="text-accent ml-1">*</span>
@@ -90,36 +75,13 @@ export function AudioForm({ audio }: { audio?: { _id: string; name: string; sour
             className="w-full hairline-all px-3 py-2 bg-paper font-mono text-sm focus:outline-none focus:border-ink"
           />
         </div>
-        <div>
-          <label className="block eyebrow mb-2">
-            Source URL<span className="text-accent ml-1">*</span>
-          </label>
-          <input
-            type="url"
-            value={sourceUrl}
-            onChange={(e) => setSourceUrl(e.target.value)}
-            required
-            className="w-full hairline-all px-3 py-2 bg-paper font-mono text-sm focus:outline-none focus:border-ink"
-          />
-        </div>
-        <div>
-          <label className="block eyebrow mb-2">Duration (seconds)</label>
-          <input
-            type="number"
-            step="0.1"
-            min="0"
-            value={duration}
-            onChange={(e) => setDuration(e.target.value)}
-            className="w-48 hairline-all px-3 py-2 bg-paper font-mono text-sm focus:outline-none focus:border-ink"
-          />
-        </div>
         <div className="flex items-center gap-3">
           <button
             type="submit"
             disabled={submitting}
             className="px-4 py-2 hairline-all bg-ink text-paper text-sm font-medium hover:bg-rule transition-colors disabled:opacity-50"
           >
-            {submitting ? "Saving…" : isNew ? "Add audio" : "Save changes"}
+            {submitting ? "Saving…" : isNew ? "Add category" : "Save changes"}
           </button>
           {error && <span className="text-sm text-failed">{error}</span>}
         </div>
@@ -130,15 +92,15 @@ export function AudioForm({ audio }: { audio?: { _id: string; name: string; sour
               onClick={() => setConfirmDelete(true)}
               className="px-4 py-2 hairline-all text-sm text-failed hover:bg-failed/5"
             >
-              Delete audio
+              Delete category
             </button>
           </div>
         )}
       </form>
       {confirmDelete && (
         <ConfirmDialog
-          title="Delete audio?"
-          message={`This will permanently remove "${audio!.name}" from the database. The pipeline will no longer be able to use this recitation.`}
+          title="Delete category?"
+          message={`This will permanently remove "${category!.name}" and all its videos from the database.`}
           confirmLabel="Delete"
           onConfirm={onDelete}
           onCancel={() => setConfirmDelete(false)}

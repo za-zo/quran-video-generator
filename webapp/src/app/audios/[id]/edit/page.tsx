@@ -1,7 +1,3 @@
-/**
- * /audios/[id]/edit — edit an existing audio.
- */
-
 import { ObjectId } from "mongodb";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -42,10 +38,10 @@ export default async function EditAudioPage({
       <PageHeader
         eyebrow="MEDIA / AUDIOS"
         title={`Edit: ${audio.name}`}
-        meta="Update the source URL or duration. Name changes propagate to all executions that reference this audio."
+        meta="Update the source URL or duration."
       />
       <div className="px-8 py-8 max-w-2xl">
-        <AudioForm mode="edit" audio={audio} />
+        <AudioForm audio={audio} />
         <div className="mt-4 text-sm">
           <Link href="/audios" className="quiet-link">
             ← back to audios

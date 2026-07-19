@@ -1,13 +1,10 @@
-/**
- * /categories/new — create a new category.
- */
-
 "use client";
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import Link from "next/link";
 import { PageHeader } from "@/components/PageHeader";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 
 export default function NewCategoryPage() {
   const router = useRouter();
@@ -31,7 +28,8 @@ export default function NewCategoryPage() {
         setSubmitting(false);
         return;
       }
-      router.push("/categories");
+      const result = await res.json();
+      router.push(`/categories/${result.id}/videos`);
       router.refresh();
     } catch (err) {
       setError(String(err));

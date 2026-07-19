@@ -1,18 +1,10 @@
-/**
- * /categories/[id]/edit — rename or delete a category.
- *
- * DELETE requires the category to have no videos. The UI surfaces the
- * conflict clearly and links to the videos page so the operator can
- * reassign or delete them first.
- */
-
 import { ObjectId } from "mongodb";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getDb } from "@/lib/mongo";
 import { stringifyIds } from "@/lib/types";
 import { PageHeader } from "@/components/PageHeader";
-import { CategoryEditForm } from "@/components/CategoryEditForm";
+import { CategoryEditInline } from "@/components/CategoryEditInline";
 
 async function getCategory(id: string) {
   let oid: ObjectId;
@@ -55,7 +47,7 @@ export default async function EditCategoryPage({
         }
       />
       <div className="px-8 py-8 max-w-2xl">
-        <CategoryEditForm category={cat} />
+        <CategoryEditInline category={cat} />
         <div className="mt-6 text-sm">
           <Link href={`/categories/${cat._id}/videos`} className="quiet-link">
             → manage videos in this category

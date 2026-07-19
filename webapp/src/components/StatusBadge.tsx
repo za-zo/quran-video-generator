@@ -1,14 +1,8 @@
-/**
- * Status badge for executions.
- *
- * Uses colour + a textual label so meaning never relies on colour alone.
- * Border and text colours are tuned to the archive palette (deep, not
- * garish) — these badges sit inside data tables and shouldn't dominate.
- */
+"use client";
 
-import type { ExecutionStatus } from "@/lib/types";
+import type { ExecutionSliceStatus } from "@/lib/types";
 
-const STATUS_STYLES: Record<ExecutionStatus, { label: string; cls: string }> = {
+const STATUS_STYLES: Record<string, { label: string; cls: string }> = {
   pending: {
     label: "PENDING",
     cls: "text-warn border-warn/40 bg-warn/5",
@@ -27,7 +21,7 @@ const STATUS_STYLES: Record<ExecutionStatus, { label: string; cls: string }> = {
   },
 };
 
-export function StatusBadge({ status }: { status: ExecutionStatus }) {
+export function StatusBadge({ status }: { status: string }) {
   const s = STATUS_STYLES[status] ?? STATUS_STYLES.pending;
   return (
     <span

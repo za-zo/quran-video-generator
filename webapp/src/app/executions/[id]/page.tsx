@@ -1,134 +1,112 @@
-/**
-
- * /executions/[id] — detail view of one execution.
- *
- * Contains the signature element: the slice timeline (a horizontal bar
- * showing the selected slice within the source audio's full duration).
- * Below it: the selected videos as a grid, the embedded Cloudinary
- * video player (if successful), error details (if failed), and the
- * GitHub Actions run link.
- */
-
 export const dynamic = "force-dynamic";
 
-import { ObjectId } from "mongodb";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getDb } from "@/lib/mongo";
 import { stringifyIds } from "@/lib/types";
 import { PageHeader } from "@/components/PageHeader";
 import { StatusBadge } from "@/components/StatusBadge";
-import { SliceTimeline } from "@/components/SliceTimeline";
-import {
-  formatDuration,
-  formatTimestamp,
-  truncateUrl,
-} from "@/lib/format";
+import { Pagination } from "@/components/Pagination";
+import { formatDuration, formatRelative, formatTimestamp } from "@/lib/format";
 
-async function getExecution(id: string) {
-  let oid: ObjectId;
+const PAGE_SIZE = 30;
+
+async function getRun(id: string) {
+  const db = await getDb();
+  let oid;
   try {
+    const { ObjectId } = await import("mongodb");
     oid = new ObjectId(id);
   } catch {
     return null;
   }
+  const run = await db.collection("executions").findOne({ _id: oid });
+  return run ? stringifyIds(run) : null;
+}
+
+async function getSlices(executionId: string, page: number) {
   const db = await getDb();
-  const pipeline = [
-    { $match: { _id: oid } },
-    {
-      $lookup: {
-        from: "audios",
-        localField: "audio_id",
-        foreignField: "_id",
-        as: "_audio",
-      },
-    },
-    { $unwind: { path: "$_audio", preserveNullAndEmptyArrays: true } },
-    {
-      $lookup: {
-        from: "categories",
-        localField: "selected_category_id",
-        foreignField: "_id",
-        as: "_category",
-      },
-    },
-    { $unwind: { path: "$_category", preserveNullAndEmptyArrays: true } },
-    {
-      $lookup: {
-        from: "videos",
-        localField: "selected_video_ids",
-        foreignField: "_id",
-        as: "_videos",
-      },
-    },
-    {
-      $project: {
-        _id: 1,
-        status: 1,
-        error_message: 1,
-        slice: 1,
-        output: 1,
-        github_run_id: 1,
-        created_at: 1,
-        completed_at: 1,
-        audio: {
-          _id: { $ifNull: ["$_audio._id", null] },
-          name: { $ifNull: ["$_audio.name", null] },
-          source_url: { $ifNull: ["$_audio.source_url", null] },
-          duration_seconds: { $ifNull: ["$_audio.duration_seconds", 0] },
-        },
-        category: {
-          _id: { $ifNull: ["$_category._id", null] },
-          name: { $ifNull: ["$_category.name", null] },
-        },
-        videos: {
-          $map: {
-            input: "$_videos",
-            as: "v",
-            in: {
-              _id: "$$v._id",
-              name: "$$v.name",
-              source_url: "$$v.source_url",
-              duration_seconds: "$$v.duration_seconds",
-            },
-          },
-        },
-      },
-    },
-  ];
-  const docs = await db.collection("executions").aggregate(pipeline).toArray();
-  return docs.length ? stringifyIds(docs[0]) : null;
+  const { ObjectId } = await import("mongodb");
+  let oid: ObjectId;
+  try {
+    oid = new ObjectId(executionId);
+  } catch {
+    return { slices: [], totalPages: 0 };
+  }
+  const filter = { execution_id: oid };
+  const total = await db.collection("execution_slices").countDocuments(filter);
+  const docs = await db
+    .collection("execution_slices")
+    .find(filter)
+    .sort({ "slice.index": 1 })
+    .skip((page - 1) * PAGE_SIZE)
+    .limit(PAGE_SIZE)
+    .toArray();
+
+  // Lookup audio names (audio_id is stored as ObjectId in MongoDB)
+  const audioIds = [...new Set(docs.map((d: any) => d.audio_id).filter(Boolean))];
+  const audioDocs = audioIds.length
+    ? await db.collection("audios").find({ _id: { $in: audioIds } }).toArray()
+    : [];
+  const audioMap = new Map(audioDocs.map((a: any) => [String(a._id), a]));
+
+  // Lookup category names
+  const catIds = [...new Set(docs.map((d: any) => d.selected_category_id).filter(Boolean))];
+  const catDocs = catIds.length
+    ? await db.collection("categories").find({ _id: { $in: catIds } }).toArray()
+    : [];
+  const catMap = new Map(catDocs.map((c: any) => [String(c._id), c]));
+
+  const enriched = docs.map((d: any) => {
+    const audio = audioMap.get(String(d.audio_id));
+    const cat = catMap.get(String(d.selected_category_id));
+    return {
+      ...stringifyIds(d),
+      _audio_name: audio?.name ?? "[deleted]",
+      _category_name: cat?.name ?? null,
+    };
+  });
+
+  return {
+    slices: enriched,
+    totalPages: Math.ceil(total / PAGE_SIZE),
+  };
 }
 
 export default async function ExecutionDetailPage({
   params,
+  searchParams,
 }: {
   params: { id: string };
+  searchParams: { page?: string };
 }) {
-  const exec = await getExecution(params.id);
-  if (!exec) notFound();
+  const run = await getRun(params.id);
+  if (!run) notFound();
+
+  const page = Math.max(1, parseInt(searchParams.page ?? "1", 10) || 1);
+  const { slices, totalPages } = await getSlices(run._id, page);
 
   const githubRepo = process.env.GITHUB_REPO || "";
   const actionsUrl =
-    githubRepo && exec.github_run_id
-      ? `https://github.com/${githubRepo}/actions/runs/${exec.github_run_id}`
+    githubRepo && (run as any).github_run_id
+      ? `https://github.com/${githubRepo}/actions/runs/${(run as any).github_run_id}`
       : null;
 
   return (
     <>
       <PageHeader
-        eyebrow="PIPELINE / EXECUTION"
-        title={`Execution`}
-        actions={<StatusBadge status={exec.status} />}
+        eyebrow="PIPELINE / RUN"
+        title="Execution Run"
+        actions={<StatusBadge status={(run as any).status} />}
         meta={
           <span>
-            <span className="num text-xs">{exec._id}</span>
+            <span className="num text-xs">{run._id}</span>
             {" · "}
-            created {formatTimestamp(exec.created_at)}
-            {exec.completed_at && (
+            created {formatTimestamp((run as any).created_at)}
+            {(run as any).completed_at && (
               <>
                 {" · "}
-                completed {formatTimestamp(exec.completed_at)}
+                completed {formatTimestamp((run as any).completed_at)}
               </>
             )}
             {actionsUrl && (
@@ -148,178 +126,101 @@ export default async function ExecutionDetailPage({
         }
       />
 
-      <div className="px-8 py-8 space-y-12">
-        {/* Signature element: slice timeline */}
-        {exec.slice && exec.audio && (
-          <SliceTimeline
-            audioDuration={exec.audio.duration_seconds}
-            audioName={exec.audio.name}
-            sliceStart={exec.slice.start_seconds}
-            sliceEnd={exec.slice.end_seconds}
-            sliceDuration={exec.slice.duration_seconds}
-          />
-        )}
-
-        {/* Output: Cloudinary player if success */}
-        {exec.status === "success" && exec.output && (
-          <section>
-            <div className="eyebrow mb-3 hairline-b pb-2">OUTPUT</div>
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              <div className="lg:col-span-2">
-                <video
-                  src={exec.output.cloudinary_url}
-                  controls
-                  className="w-full hairline-all bg-ink"
-                  preload="metadata"
-                />
-              </div>
-              <div className="space-y-3 text-sm">
-                <Detail label="Duration" value={formatDuration(exec.output.duration_seconds)} />
-                <Detail label="Resolution" value={`${exec.output.width}×${exec.output.height}`} />
-                <Detail
-                  label="Cloudinary URL"
-                  value={
-                    <a
-                      href={exec.output.cloudinary_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="quiet-link font-mono text-xs break-all"
-                    >
-                      {truncateUrl(exec.output.cloudinary_url, 80)}
-                    </a>
-                  }
-                />
-                <Detail
-                  label="Public ID"
-                  value={
-                    <span className="font-mono text-xs break-all">
-                      {exec.output.cloudinary_public_id}
-                    </span>
-                  }
-                />
-              </div>
-            </div>
-          </section>
-        )}
-
-        {/* Error: if failed or canceled */}
-        {(exec.status === "failed" || exec.status === "canceled") && exec.error_message && (
-          <section>
-            <div className={`eyebrow mb-3 hairline-b pb-2 ${exec.status === "canceled" ? "text-mute" : "text-failed"}`}>
-              {exec.status === "canceled" ? "CANCELED" : "ERROR"}
-            </div>
-            <pre className="hairline-all p-4 bg-failed/[0.03] text-sm text-failed font-mono whitespace-pre-wrap break-words">
-              {exec.error_message}
-            </pre>
-          </section>
-        )}
-
-        {/* Source audio + category */}
-        <section className="grid grid-cols-1 md:grid-cols-2 gap-8">
+      <div className="px-8 py-8 space-y-8">
+        {/* Summary stats */}
+        <section className="grid grid-cols-2 md:grid-cols-4 gap-6">
           <div>
-            <div className="eyebrow mb-3 hairline-b pb-2">SOURCE AUDIO</div>
-            {exec.audio?._id ? (
-              <Link
-                href={`/audios/${exec.audio._id}/edit`}
-                className="block hover:bg-rule/[0.03] transition-colors -mx-2 px-2 py-1"
-              >
-                <div className="text-sm font-medium">{exec.audio.name}</div>
-                <div className="num text-xs text-mute mt-1">
-                  {formatDuration(exec.audio.duration_seconds)} total
-                </div>
-                <div className="font-mono text-2xs text-mute mt-1 truncate">
-                  {truncateUrl(exec.audio.source_url, 60)}
-                </div>
-              </Link>
-            ) : (
-              <div className="text-mute italic text-sm">
-                [deleted audio — execution references a missing record]
-              </div>
-            )}
+            <div className="eyebrow mb-1">TOTAL SLICES</div>
+            <div className="num text-xl">{(run as any).total_slices ?? "—"}</div>
           </div>
           <div>
-            <div className="eyebrow mb-3 hairline-b pb-2">SELECTED CATEGORY</div>
-            {exec.category?._id ? (
-              <Link
-                href={`/categories/${exec.category._id}/videos`}
-                className="block hover:bg-rule/[0.03] transition-colors -mx-2 px-2 py-1"
-              >
-                <div className="font-serif text-lg">{exec.category.name}</div>
-                <div className="text-2xs text-mute mt-1">
-                  → view videos in this category
-                </div>
-              </Link>
-            ) : (
-              <div className="text-mute italic text-sm">
-                {exec.status === "failed"
-                  ? "no category was selected (pipeline failed before selection)"
-                  : "[deleted category]"}
-              </div>
-            )}
+            <div className="eyebrow mb-1">SUCCESS</div>
+            <div className="num text-xl text-success">{(run as any).success_count ?? 0}</div>
+          </div>
+          <div>
+            <div className="eyebrow mb-1">FAILED</div>
+            <div className="num text-xl text-failed">{(run as any).failed_count ?? 0}</div>
+          </div>
+          <div>
+            <div className="eyebrow mb-1">CREATED</div>
+            <div className="num text-sm">{formatRelative((run as any).created_at)}</div>
           </div>
         </section>
 
-        {/* Selected videos */}
-        {exec.videos && exec.videos.length > 0 && (
-          <section>
-            <div className="eyebrow mb-3 hairline-b pb-2">
-              SELECTED VIDEOS ({exec.videos.length})
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-px bg-rule/20">
-              {exec.videos.map((v: any, i: number) => (
-                <div key={v._id} className="bg-paper p-4">
-                  <div className="flex items-baseline justify-between mb-2">
-                    <span className="num text-2xs text-mute">
-                      {String(i + 1).padStart(2, "0")}
-                    </span>
-                    <span className="num text-xs text-mute">
-                      {formatDuration(v.duration_seconds)}
-                    </span>
-                  </div>
-                  <div className="text-sm font-medium truncate">{v.name}</div>
-                  <div className="font-mono text-2xs text-mute mt-1 truncate">
-                    {truncateUrl(v.source_url, 50)}
-                  </div>
+        {/* Slices list */}
+        <section>
+          <div className="eyebrow mb-4 hairline-b pb-2">
+            SLICES ({(run as any).total_slices ?? 0})
+          </div>
+          {slices.length === 0 ? (
+            <p className="text-mute italic text-sm">No slices found for this run.</p>
+          ) : (
+            <>
+              <div className="hairline-all">
+                <div className="grid grid-cols-12 gap-4 px-4 py-2 hairline-b bg-rule/[0.03]">
+                  <div className="col-span-1 eyebrow">#</div>
+                  <div className="col-span-1 eyebrow">STATUS</div>
+                  <div className="col-span-3 eyebrow">AUDIO</div>
+                  <div className="col-span-2 eyebrow">CATEGORY</div>
+                  <div className="col-span-2 eyebrow">SLICE</div>
+                  <div className="col-span-2 eyebrow">DURATION</div>
+                  <div className="col-span-1 eyebrow text-right">CREATED</div>
                 </div>
-              ))}
-            </div>
-          </section>
-        )}
+                <ul>
+                  {slices.map((slice: any, i: number) => (
+                    <li key={slice._id} className="hairline-b last:border-b-0">
+                      <Link
+                        href={`/slices/${slice._id}`}
+                        className="grid grid-cols-12 gap-4 px-4 py-3 items-center hover:bg-rule/[0.03] transition-colors"
+                      >
+                        <div className="col-span-1 num text-2xs text-mute">
+                          {String((page - 1) * PAGE_SIZE + i + 1).padStart(3, "0")}
+                        </div>
+                        <div className="col-span-1">
+                          <StatusBadge status={slice.status} />
+                        </div>
+                        <div className="col-span-3 truncate text-sm font-medium">
+                          {slice._audio_name}
+                        </div>
+                        <div className="col-span-2 truncate text-sm text-mute">
+                          {slice._category_name ?? "—"}
+                        </div>
+                        <div className="col-span-2 num text-xs text-mute">
+                          {slice.slice
+                            ? `${formatDuration(slice.slice.start_seconds)} → ${formatDuration(slice.slice.end_seconds)}`
+                            : "—"}
+                        </div>
+                        <div className="col-span-2">
+                          {slice.slice && (
+                            <span className="num text-xs text-mute">
+                              {formatDuration(slice.slice.duration_seconds)}
+                            </span>
+                          )}
+                        </div>
+                        <div className="col-span-1 num text-2xs text-mute text-right">
+                          {formatRelative(slice.created_at)}
+                        </div>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <Pagination
+                basePath={`/executions/${run._id}`}
+                currentPage={page}
+                totalPages={totalPages}
+                searchParams={searchParams}
+              />
+            </>
+          )}
+        </section>
 
-        {/* Slice details (numeric backup to the timeline) */}
-        {exec.slice && (
-          <section>
-            <div className="eyebrow mb-3 hairline-b pb-2">SLICE DETAILS</div>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-              <Detail label="Index" value={exec.slice.index} />
-              <Detail label="Start" value={formatDuration(exec.slice.start_seconds)} />
-              <Detail label="End" value={formatDuration(exec.slice.end_seconds)} />
-              <Detail label="Duration" value={formatDuration(exec.slice.duration_seconds)} />
-            </div>
-          </section>
-        )}
-
-        <div className="pt-6">
+        <div className="pt-4">
           <Link href="/executions" className="quiet-link text-sm">
-            ← back to executions
+            ← back to runs
           </Link>
         </div>
       </div>
     </>
-  );
-}
-
-function Detail({
-  label,
-  value,
-}: {
-  label: string;
-  value: React.ReactNode;
-}) {
-  return (
-    <div>
-      <div className="eyebrow mb-1">{label}</div>
-      <div className="num text-sm">{value}</div>
-    </div>
   );
 }

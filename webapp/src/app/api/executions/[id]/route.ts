@@ -1,12 +1,3 @@
-/**
-
- * GET /api/executions/[id]
- *
- * Returns a single execution with all referenced entities (audio,
- * category, selected videos) joined in. The execution detail page
- * consumes this to render the slice timeline and the video grid.
- */
-
 export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
@@ -25,6 +16,21 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
   }
 
   const db = await getDb();
+
+  // First try execution_slices (individual clips)
+  let doc = await db.collection("execution_slices").findOne({ _id: oid });
+
+  // If not found, try executions (runs) — return run info with its slices
+  if (!doc) {
+    const run = await db.collection("executions").findOne({ _id: oid });
+    if (!run) {
+      return NextResponse.json({ error: "not found" }, { status: 404 });
+    }
+    // Return the run document (no audio/video lookups needed for runs)
+    return NextResponse.json({ execution: stringifyIds(run), type: "run" });
+  }
+
+  // Enrich the slice with audio, category, videos
   const pipeline = [
     { $match: { _id: oid } },
     {
@@ -56,6 +62,7 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
     {
       $project: {
         _id: 1,
+        execution_id: 1,
         audio_id: 1,
         status: 1,
         error_message: 1,
@@ -92,9 +99,9 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
     },
   ];
 
-  const docs = await db.collection("executions").aggregate(pipeline).toArray();
+  const docs = await db.collection("execution_slices").aggregate(pipeline).toArray();
   if (docs.length === 0) {
     return NextResponse.json({ error: "not found" }, { status: 404 });
   }
-  return NextResponse.json({ execution: stringifyIds(docs[0]) });
+  return NextResponse.json({ execution: stringifyIds(docs[0]), type: "slice" });
 }

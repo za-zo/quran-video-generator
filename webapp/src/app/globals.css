@@ -2,16 +2,6 @@
 @tailwind components;
 @tailwind utilities;
 
-/*
- * Quran Video Generator — admin webapp global stylesheet.
- *
- * Aesthetic: precise, archive-flavoured operations tool. Disciplined
- * hairlines, restrained oxblood accent, IBM Plex family throughout.
- * The structure (hairlines, dense tables) is appropriate for an ops
- * tool; the personality comes from the slice-timeline signature element
- * and the duration-bar motif, not from decorative flourish.
- */
-
 :root {
   --font-plex-sans: "IBM Plex Sans", system-ui, sans-serif;
   --font-plex-serif: "IBM Plex Serif", Georgia, serif;
@@ -20,7 +10,6 @@
 
 html {
   font-feature-settings: "ss01", "ss02", "tnum";
-  /* Tabular numbers throughout — essential for scanning data tables. */
 }
 
 body {
@@ -31,9 +20,6 @@ body {
   text-rendering: optimizeLegibility;
 }
 
-/* Hairline rules — used between table rows, around stat cards, and as
- * section dividers. Tailwind's default border grey is too light against
- * the ivory background; we want a visible-but-quiet line. */
 @layer components {
   .hairline {
     @apply border-hairline border-t;
@@ -50,26 +36,17 @@ body {
   .hairline-all {
     @apply border-hairline border;
   }
-
-  /* Eyebrow label — small, tracked, mono, sits above headings. Encodes
-   * structural information (e.g. "AUDIO", "EXECUTION", "003 / 247") —
-   * never decorative. */
   .eyebrow {
     @apply font-mono text-2xs uppercase tracking-wide-3 text-mute;
   }
-
-  /* Mono numeric — for any data column where alignment matters. */
   .num {
     @apply font-mono tabular-nums;
   }
-
-  /* Quiet link — underlined only on hover, never decorated otherwise. */
   .quiet-link {
     @apply underline decoration-rule/30 underline-offset-4 hover:decoration-ink;
   }
 }
 
-/* Custom scrollbar for long lists — fits the archive aesthetic. */
 .scroll-archive::-webkit-scrollbar {
   width: 8px;
   height: 8px;
@@ -85,8 +62,6 @@ body {
   background: theme("colors.rule / 60%");
 }
 
-/* Respect reduced motion — the slice timeline has a subtle reveal
- * animation that some users may want suppressed. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -97,7 +72,6 @@ body {
   }
 }
 
-/* Focus ring — visible, high-contrast, doesn't rely on colour alone. */
 :focus-visible {
   outline: 2px solid theme("colors.accent");
   outline-offset: 2px;

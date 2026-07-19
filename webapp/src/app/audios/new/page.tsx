@@ -1,10 +1,3 @@
-/**
- * /audios/new — create a new audio.
- *
- * Server Component shell + a Client Component form that POSTs to
- * /api/audios. On success, redirects to /audios.
- */
-
 import Link from "next/link";
 import { PageHeader } from "@/components/PageHeader";
 import { AudioForm } from "@/components/AudioForm";
@@ -18,7 +11,7 @@ export default function NewAudioPage() {
         meta="Register a Quran recitation by its remote URL. The pipeline downloads it on demand."
       />
       <div className="px-8 py-8 max-w-2xl">
-        <AudioForm mode="create" />
+        <AudioForm />
         <div className="mt-4 text-sm">
           <Link href="/audios" className="quiet-link">
             ← back to audios

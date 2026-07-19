@@ -1,11 +1,3 @@
-/**
-
- * /categories/[id]/videos — CRUD for videos within one category.
- *
- * Combines a list of the category's videos with an inline add form and
- * per-row edit/delete. Reuses the duration-bar motif.
- */
-
 export const dynamic = "force-dynamic";
 
 import { ObjectId } from "mongodb";
@@ -15,9 +7,9 @@ import { getDb } from "@/lib/mongo";
 import { stringifyIds } from "@/lib/types";
 import { PageHeader } from "@/components/PageHeader";
 import { DurationBar } from "@/components/DurationBar";
-import { VideoRow } from "@/components/VideoRow";
 import { AddVideoForm } from "@/components/AddVideoForm";
-import { formatDuration, formatRelative, truncateUrl } from "@/lib/format";
+import { VideoForm } from "@/components/VideoForm";
+import { formatDuration, truncateUrl } from "@/lib/format";
 
 async function getCategoryAndVideos(id: string) {
   let oid: ObjectId;
@@ -48,17 +40,23 @@ async function getCategoryAndVideos(id: string) {
 
 export default async function CategoryVideosPage({
   params,
+  searchParams,
 }: {
   params: { id: string };
+  searchParams: { edit?: string };
 }) {
   const data = await getCategoryAndVideos(params.id);
   if (!data) notFound();
+
+  const editingVideo = searchParams.edit
+    ? data.videos.find((v: any) => v._id === searchParams.edit)
+    : null;
 
   return (
     <>
       <PageHeader
         eyebrow={`MEDIA / ${data.category.name.toUpperCase()}`}
-        title={`Videos in “${data.category.name}”`}
+        title={`Videos in "${data.category.name}"`}
         actions={
           <Link
             href={`/categories/${data.category._id}/edit`}
@@ -114,12 +112,24 @@ export default async function CategoryVideosPage({
                       {v.usage_count}
                     </div>
                     <div className="col-span-1 text-right">
-                      <VideoRow video={v} />
+                      <Link
+                        href={`/categories/${data.category._id}/videos?edit=${v._id}`}
+                        className="px-2 py-1 hairline-all text-2xs hover:bg-rule/[0.05]"
+                      >
+                        edit
+                      </Link>
                     </div>
                   </div>
                 </li>
               ))}
             </ul>
+          </section>
+        )}
+
+        {editingVideo && (
+          <section className="hairline-all p-6 max-w-2xl">
+            <div className="eyebrow mb-3">EDIT VIDEO</div>
+            <VideoForm video={editingVideo as any} />
           </section>
         )}
       </div>

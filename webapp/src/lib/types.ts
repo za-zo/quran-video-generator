@@ -1,9 +1,6 @@
 /**
  * TypeScript types mirroring the MongoDB collections owned by the Python
  * pipeline (see src/database/repository.py).
- *
- * Field names here MUST stay in sync with the Python side so the webapp
- * and the pipeline read/write the same documents.
  */
 
 import type { ObjectId } from "mongodb";
@@ -52,28 +49,40 @@ export interface ExecutionOutput {
   height: number;
 }
 
-export type ExecutionStatus = "pending" | "success" | "failed" | "canceled";
+export type ExecutionRunStatus = "running" | "success" | "failed" | "partial" | "canceled";
+export type ExecutionSliceStatus = "pending" | "success" | "failed" | "canceled";
 
-export interface ExecutionDoc {
-  _id: ObjectId | string;
-  audio_id: ObjectId | string;
-  status: ExecutionStatus;
+export interface ExecutionRunDoc {
+  _id: string;
+  status: ExecutionRunStatus;
+  github_run_id: string;
+  created_at: Date;
+  completed_at: Date | null;
+  success_count: number;
+  failed_count: number;
+  total_slices: number;
+}
+
+export interface ExecutionSliceDoc {
+  _id: string;
+  execution_id: string;
+  audio_id: string;
+  status: ExecutionSliceStatus;
   error_message: string | null;
   slice: ExecutionSlice;
-  selected_category_id: ObjectId | string | null;
-  selected_video_ids: (ObjectId | string)[];
+  selected_category_id: string | null;
+  selected_video_ids: string[];
   output: ExecutionOutput | null;
   github_run_id: string;
   created_at: Date;
   completed_at: Date | null;
 }
 
-// Convenience type used by the dashboard stats endpoint.
 export interface DashboardStats {
   audios: number;
   categories: number;
   videos: number;
-  executions_by_status: Record<ExecutionStatus, number>;
+  executions_by_status: Record<string, number>;
   executions_total: number;
   most_used_audio: { id: string; name: string; usage_count: number } | null;
   least_used_audio: { id: string; name: string; usage_count: number } | null;
@@ -81,14 +90,12 @@ export interface DashboardStats {
   least_used_category: { id: string; name: string; usage_count: number } | null;
   latest_execution: {
     id: string;
-    status: ExecutionStatus;
+    status: string;
     created_at: Date;
     audio_name: string;
   } | null;
 }
 
-// Stringify every ObjectId-shaped field so the client never sees a raw
-// ObjectId (which would crash JSON.stringify in the browser).
 export function stringifyIds<T>(doc: T): T {
   if (!doc || typeof doc !== "object") return doc;
   const out: any = Array.isArray(doc) ? [] : {};

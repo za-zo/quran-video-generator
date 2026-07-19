@@ -315,44 +315,70 @@ class VideoRepo:
         return res.deleted_count
 
 
-# --- ExecutionRepo (replaces JobRepo) ---------------------------------------
+# --- ExecutionRunRepo (Le run global) ---------------------------------------
 
-class ExecutionRepo:
-    """Owns the ``executions`` collection (one document per generated clip).
-
-    Replaces the old ``JobRepo`` against ``generation_jobs``. The rename is
-    intentional: 'execution' is clearer for the webapp UI and reflects that
-    a record may track not just the FFmpeg job but also Cloudinary upload
-    state and the GitHub Actions run that produced it.
-    """
-
-    PENDING = "pending"
-    SUCCESS = "success"
-    FAILED = "failed"
+class ExecutionRunRepo:
+    """Owns the `executions` collection (one document per GitHub Actions run)."""
 
     def __init__(self, db: Database) -> None:
         self.db = db
         self.col = db["executions"]
 
-    def create(
-        self,
-        audio_id: str,
-        slice_index: int,
-        clip_start: float,
-        clip_end: float,
-        clip_duration: float,
-        github_run_id: str = "",
-        status: str = PENDING,
-    ) -> dict[str, Any]:
-        """Insert a new execution document and return it as a dict.
-
-        Returns the full document (including the stringified ``_id``) so
-        the orchestrator can immediately use the id for Cloudinary upload
-        and subsequent status updates.
-        """
+    def create(self, github_run_id: str) -> dict[str, Any]:
         doc = {
+            "status": "running",
+            "github_run_id": github_run_id,
+            "created_at": _utcnow(),
+            "completed_at": None,
+            "success_count": 0,
+            "failed_count": 0,
+            "total_slices": 0,
+        }
+        res = self.col.insert_one(doc)
+        return {**doc, "_id": res.inserted_id}
+
+    def increment_counters(self, run_id: str, success: bool) -> None:
+        field = "success_count" if success else "failed_count"
+        self.col.update_one(
+            {"_id": _oid(run_id)},
+            {"$inc": {"total_slices": 1, field: 1}},
+        )
+
+    def mark_completed(self, run_id: str, status: str) -> None:
+        self.col.update_one(
+            {"_id": _oid(run_id)},
+            {"$set": {"status": status, "completed_at": _utcnow()}},
+        )
+
+    def list_recent(self, limit: int = 20) -> list[dict[str, Any]]:
+        cur = self.col.find({}).sort("created_at", -1).limit(limit)
+        return [_normalize_execution(d) for d in cur]
+
+    def get(self, run_id: str) -> dict[str, Any] | None:
+        doc = self.col.find_one({"_id": _oid(run_id)})
+        return _normalize_execution(doc) if doc else None
+
+
+# --- ExecutionSliceRepo (Les clips individuels) -----------------------------
+
+class ExecutionSliceRepo:
+    """Owns the `execution_slices` collection (one document per generated clip)."""
+
+    PENDING = "pending"
+    SUCCESS = "success"
+    FAILED = "failed"
+    CANCELED = "canceled"
+
+    def __init__(self, db: Database) -> None:
+        self.db = db
+        self.col = db["execution_slices"]
+
+    def create(self, execution_id: str, audio_id: str, slice_index: int,
+               clip_start: float, clip_end: float, clip_duration: float, github_run_id: str) -> dict[str, Any]:
+        doc = {
+            "execution_id": _oid(execution_id),
             "audio_id": _oid(audio_id),
-            "status": status,
+            "status": self.PENDING,
             "error_message": None,
             "slice": {
                 "index": int(slice_index),
@@ -363,7 +389,7 @@ class ExecutionRepo:
             "selected_category_id": None,
             "selected_video_ids": [],
             "output": None,
-            "github_run_id": github_run_id or "",
+            "github_run_id": github_run_id,
             "created_at": _utcnow(),
             "completed_at": None,
         }
@@ -371,32 +397,19 @@ class ExecutionRepo:
         out = {**doc, "_id": res.inserted_id}
         return out
 
-    def mark_selection(
-        self,
-        execution_id: str,
-        category_id: str,
-        video_ids: list[str],
-    ) -> None:
-        """Record which category + videos were chosen for this execution."""
+    def mark_selection(self, slice_id: str, category_id: str, video_ids: list[str]) -> None:
         self.col.update_one(
-            {"_id": _oid(execution_id)},
+            {"_id": _oid(slice_id)},
             {"$set": {
                 "selected_category_id": _oid(category_id),
                 "selected_video_ids": [_oid(v) for v in video_ids],
             }},
         )
 
-    def mark_success(
-        self,
-        execution_id: str,
-        cloudinary_url: str,
-        cloudinary_public_id: str,
-        duration_seconds: float,
-        width: int,
-        height: int,
-    ) -> None:
+    def mark_success(self, slice_id: str, cloudinary_url: str, cloudinary_public_id: str,
+                     duration_seconds: float, width: int, height: int) -> None:
         self.col.update_one(
-            {"_id": _oid(execution_id)},
+            {"_id": _oid(slice_id)},
             {"$set": {
                 "status": self.SUCCESS,
                 "output": {
@@ -410,9 +423,9 @@ class ExecutionRepo:
             }},
         )
 
-    def mark_failed(self, execution_id: str, error_message: str) -> None:
+    def mark_failed(self, slice_id: str, error_message: str) -> None:
         self.col.update_one(
-            {"_id": _oid(execution_id)},
+            {"_id": _oid(slice_id)},
             {"$set": {
                 "status": self.FAILED,
                 "error_message": (error_message or "")[:4000],
@@ -420,48 +433,37 @@ class ExecutionRepo:
             }},
         )
 
-    def get(self, execution_id: str) -> dict[str, Any] | None:
-        doc = self.col.find_one({"_id": _oid(execution_id)})
+    def list_by_execution(self, execution_id: str, status: str | None = None) -> list[dict[str, Any]]:
+        query: dict[str, Any] = {"execution_id": _oid(execution_id)}
+        if status and ["pending", "success", "failed", "canceled"].count(status) > 0:
+            query["status"] = status
+        cur = self.col.find(query).sort("created_at", 1)
+        return [_normalize_execution(d) for d in cur]
+
+    def get(self, slice_id: str) -> dict[str, Any] | None:
+        doc = self.col.find_one({"_id": _oid(slice_id)})
         if doc is None:
             return None
         return _normalize_execution(doc)
 
-    def list_recent(self, limit: int = 20, status: str | None = None) -> list[dict[str, Any]]:
-        query: dict[str, Any] = {}
-        if status:
-            query["status"] = status
-        cur = self.col.find(query).sort("created_at", -1).limit(limit)
-        return [_normalize_execution(d) for d in cur]
-
-    def count_by_status(self) -> dict[str, int]:
-        out: dict[str, int] = {}
-        for d in self.col.find({}, {"status": 1}):
-            s = d.get("status", "pending")
-            out[s] = out.get(s, 0) + 1
-        return out
-
     def recent_category_ids(self, k: int) -> list[str]:
-        """Return category_ids used by the K most-recently-used categories.
-
-        Used by :class:`CategorySelector` to apply the cooldown window.
-        Returns at most K entries (most-recent first).
-        """
-        if k <= 0:
-            return []
-        # Cooldown is based on category.last_used_at, not on executions
-        # (mirrors the previous SQL behaviour: "categories used in the last
-        # K successful jobs" is approximated by "K most recently used
-        # categories" because we bump last_used_at only on success).
+        if k <= 0: return []
         cur = self.db["categories"].find(
             {"last_used_at": {"$ne": None}}
         ).sort("last_used_at", -1).limit(k)
         return [str(d["_id"]) for d in cur]
 
 
+# --- Backwards compatibility alias ------------------------------------------
+JobRepo = ExecutionRunRepo
+
+
 def _normalize_execution(d: dict[str, Any]) -> dict[str, Any]:
     """Stringify all ObjectIds in an execution doc for external consumers."""
     out = dict(d)
     out["_id"] = str(d["_id"])
+    if d.get("execution_id"):
+        out["execution_id"] = str(d["execution_id"])
     if d.get("audio_id"):
         out["audio_id"] = str(d["audio_id"])
     if d.get("selected_category_id"):
@@ -486,6 +488,9 @@ def ensure_indexes(db: Database) -> None:
     db["videos"].create_index([("category_id", 1), ("usage_count", 1)])
     db["executions"].create_index([("created_at", -1)])
     db["executions"].create_index("status")
+    db["execution_slices"].create_index([("created_at", -1)])
+    db["execution_slices"].create_index("status")
+    db["execution_slices"].create_index("execution_id")
     # Unique-name guards so duplicate registration fails fast.
     db["audios"].create_index("name", unique=True)
     db["categories"].create_index("name", unique=True)
@@ -493,17 +498,12 @@ def ensure_indexes(db: Database) -> None:
     log.info("mongo indexes ensured")
 
 
-# --- Compatibility alias ----------------------------------------------------
-# Older code may still import ``JobRepo``. Keep a thin alias so the symbol
-# doesn't disappear, but new code should use ``ExecutionRepo`` directly.
-JobRepo = ExecutionRepo
-
-
 __all__ = [
     "AudioRepo",
     "CategoryRepo",
     "VideoRepo",
-    "ExecutionRepo",
+    "ExecutionRunRepo",
+    "ExecutionSliceRepo",
     "JobRepo",        # backwards-compat alias
     "ensure_indexes",
 ]

@@ -1,19 +1,3 @@
-/**
- * Dashboard — the signature page of the webapp.
- *
- * Structure:
- *   1. Hero: a single oversized "last execution" line (when did the
- *      pipeline last run, what status) — this is the operator's first
- *      question, so it leads.
- *   2. Stat grid: 3 small cards (audios / categories / executions
- *      total). Quiet, hairline-bordered.
- *   3. Two-column "media balance" section: most vs least used audio +
- *      category. Helps the operator spot a stale or over-used asset.
- *   4. Recent executions list with the duration-bar motif.
- *
- * No big SaaS-hero with gradient — the data IS the hero.
- */
-
 import Link from "next/link";
 import { getDb } from "@/lib/mongo";
 import { stringifyIds } from "@/lib/types";
@@ -34,13 +18,23 @@ async function getData() {
   const categories = await db.collection("categories").countDocuments();
   const videos = await db.collection("videos").countDocuments();
 
-  const execCountsRaw = await db
+  // Run-level stats
+  const runCountsRaw = await db
     .collection("executions")
     .aggregate([{ $group: { _id: "$status", count: { $sum: 1 } } }])
     .toArray();
-  const execByStatus: Record<string, number> = { pending: 0, success: 0, failed: 0, canceled: 0 };
-  for (const c of execCountsRaw) execByStatus[c._id] = c.count;
-  const execTotal = execByStatus.pending + execByStatus.success + execByStatus.failed + execByStatus.canceled;
+  const runsByStatus: Record<string, number> = { running: 0, success: 0, failed: 0, partial: 0, canceled: 0 };
+  for (const c of runCountsRaw) runsByStatus[c._id] = c.count;
+  const runsTotal = Object.values(runsByStatus).reduce((a, b) => a + b, 0);
+
+  // Slice-level stats
+  const sliceCountsRaw = await db
+    .collection("execution_slices")
+    .aggregate([{ $group: { _id: "$status", count: { $sum: 1 } } }])
+    .toArray();
+  const slicesByStatus: Record<string, number> = { pending: 0, success: 0, failed: 0, canceled: 0 };
+  for (const c of sliceCountsRaw) slicesByStatus[c._id] = c.count;
+  const slicesTotal = Object.values(slicesByStatus).reduce((a, b) => a + b, 0);
 
   const audiosByUsage = await db
     .collection("audios")
@@ -53,8 +47,11 @@ async function getData() {
     .sort({ usage_count: -1 })
     .toArray();
 
-  // Latest execution + recent executions (with audio names joined).
-  const recentPipeline = [
+  // Latest run
+  const latestRun = await db.collection("executions").findOne({}, { sort: { created_at: -1 } });
+
+  // Recent slices (for the dashboard list, show individual clips)
+  const recentSlicesPipeline = [
     { $sort: { created_at: -1 } },
     { $limit: 8 },
     {
@@ -73,28 +70,29 @@ async function getData() {
         slice: 1,
         output: 1,
         created_at: 1,
+        execution_id: 1,
         audio_name: { $ifNull: ["$_audio.name", "[deleted]"] },
       },
     },
   ];
-  const recent = await db.collection("executions").aggregate(recentPipeline).toArray();
-
-  const latest = recent[0] ?? null;
+  const recentSlices = await db.collection("execution_slices").aggregate(recentSlicesPipeline).toArray();
 
   return {
     audios,
     categories,
     videos,
-    execByStatus,
-    execTotal,
+    runsByStatus,
+    runsTotal,
+    slicesByStatus,
+    slicesTotal,
     mostUsedAudio: audiosByUsage[0] ?? null,
     leastUsedAudio: audiosByUsage[audiosByUsage.length - 1] ?? null,
     mostUsedCategory: catsByUsage[0] ?? null,
     leastUsedCategory: catsByUsage[catsByUsage.length - 1] ?? null,
-    recent: recent.map((d) => stringifyIds(d)),
-    latest: latest ? stringifyIds(latest) : null,
+    recentSlices: recentSlices.map((d) => stringifyIds(d)),
+    latestRun: latestRun ? stringifyIds(latestRun) : null,
     maxAudioDuration: audiosByUsage.reduce(
-      (m, a) => Math.max(m, a.duration_seconds || 0),
+      (m, a) => Math.max(m, (a as any).duration_seconds || 0),
       1,
     ),
   };
@@ -112,71 +110,79 @@ export default async function DashboardPage() {
       />
 
       <div className="px-8 py-8 space-y-12">
-        {/* Hero — the operator's first question: did the pipeline run? */}
+        {/* Hero — last run */}
         <section>
-          <div className="eyebrow mb-3">LAST EXECUTION</div>
-          {data.latest ? (
+          <div className="eyebrow mb-3">LAST RUN</div>
+          {data.latestRun ? (
             <div className="flex items-baseline gap-6 flex-wrap">
               <div className="font-serif text-5xl leading-none">
-                {data.latest.status === "success" ? (
-                  <>Ran <span className="text-success">{formatRelative(data.latest.created_at)}</span></>
-                ) : data.latest.status === "failed" ? (
-                  <>Failed <span className="text-failed">{formatRelative(data.latest.created_at)}</span></>
-                ) : data.latest.status === "canceled" ? (
-                  <>Canceled <span className="text-mute">{formatRelative(data.latest.created_at)}</span></>
+                {(data.latestRun as any).status === "success" ? (
+                  <>Ran <span className="text-success">{formatRelative((data.latestRun as any).created_at)}</span></>
+                ) : (data.latestRun as any).status === "failed" ? (
+                  <>Failed <span className="text-failed">{formatRelative((data.latestRun as any).created_at)}</span></>
+                ) : (data.latestRun as any).status === "canceled" ? (
+                  <>Canceled <span className="text-mute">{formatRelative((data.latestRun as any).created_at)}</span></>
                 ) : (
-                  <>Pending <span className="text-warn">{formatRelative(data.latest.created_at)}</span></>
+                  <>Running <span className="text-warn">{formatRelative((data.latestRun as any).created_at)}</span></>
                 )}
               </div>
               <div className="text-mute">
-                on <span className="italic">{data.latest.audio_name}</span>
-                {" — "}
                 <Link
-                  href={`/executions/${data.latest._id}`}
+                  href={`/executions/${(data.latestRun as any)._id}`}
                   className="quiet-link"
                 >
-                  view execution →
+                  view run →
                 </Link>
               </div>
             </div>
           ) : (
             <div className="font-serif text-3xl text-mute italic">
-              No executions yet — trigger the pipeline via GitHub Actions.
+              No runs yet — trigger the pipeline via GitHub Actions.
             </div>
           )}
         </section>
 
         {/* Stat grid */}
-        <section className="grid grid-cols-1 sm:grid-cols-3 gap-px bg-rule/20">
+        <section className="grid grid-cols-1 sm:grid-cols-4 gap-px bg-rule/20">
           <StatCard
-            eyebrow="AUDIOS REGISTERED"
+            eyebrow="AUDIOS"
             value={data.audios}
-            caption="Source Quran recitations available for clip generation."
+            caption="Source Quran recitations."
           />
           <StatCard
             eyebrow="CATEGORIES"
             value={data.categories}
-            caption="Scenery categories used as background footage."
+            caption="Scenery categories."
           />
           <StatCard
-            eyebrow="EXECUTIONS TOTAL"
-            value={data.execTotal}
+            eyebrow="RUNS TOTAL"
+            value={data.runsTotal}
             caption={
               <>
-                <span className="text-success">{data.execByStatus.success}</span>
+                <span className="text-success">{data.runsByStatus.success}</span>
                 {" success · "}
-                <span className="text-failed">{data.execByStatus.failed}</span>
+                <span className="text-failed">{data.runsByStatus.failed}</span>
                 {" failed · "}
-                <span className="text-mute">{data.execByStatus.canceled}</span>
-                {" canceled · "}
-                <span className="text-warn">{data.execByStatus.pending}</span>
-                {" pending"}
+                <span className="text-mute">{data.runsByStatus.canceled}</span>
+                {" canceled"}
+              </>
+            }
+          />
+          <StatCard
+            eyebrow="SLICES TOTAL"
+            value={data.slicesTotal}
+            caption={
+              <>
+                <span className="text-success">{data.slicesByStatus.success}</span>
+                {" success · "}
+                <span className="text-failed">{data.slicesByStatus.failed}</span>
+                {" failed"}
               </>
             }
           />
         </section>
 
-        {/* Media balance — most vs least used */}
+        {/* Media balance */}
         <section className="grid grid-cols-1 md:grid-cols-2 gap-8">
           <div>
             <div className="eyebrow mb-3 hairline-b pb-2">AUDIO BALANCE</div>
@@ -214,48 +220,48 @@ export default async function DashboardPage() {
           </div>
         </section>
 
-        {/* Recent executions */}
+        {/* Recent slices */}
         <section>
           <div className="flex items-baseline justify-between hairline-b pb-3 mb-4">
-            <div className="eyebrow">RECENT EXECUTIONS</div>
+            <div className="eyebrow">RECENT SLICES</div>
             <Link href="/executions" className="quiet-link text-sm">
-              view all →
+              view runs →
             </Link>
           </div>
-          {data.recent.length === 0 ? (
+          {data.recentSlices.length === 0 ? (
             <p className="text-mute italic">
-              No executions yet. The pipeline runs via GitHub Actions.
+              No slices yet. The pipeline runs via GitHub Actions.
             </p>
           ) : (
             <ul className="space-y-px">
-              {data.recent.map((exec: any) => (
-                <li key={exec._id}>
+              {data.recentSlices.map((slice: any) => (
+                <li key={slice._id}>
                   <Link
-                    href={`/executions/${exec._id}`}
+                    href={`/slices/${slice._id}`}
                     className="grid grid-cols-12 gap-4 items-center py-3 px-2 hover:bg-rule/[0.03] transition-colors"
                   >
                     <div className="col-span-1">
-                      <StatusBadge status={exec.status} />
+                      <StatusBadge status={slice.status} />
                     </div>
                     <div className="col-span-4 truncate">
-                      <span className="text-sm font-medium">{exec.audio_name}</span>
+                      <span className="text-sm font-medium">{slice.audio_name}</span>
                     </div>
                     <div className="col-span-3 num text-xs text-mute">
-                      {exec.slice
-                        ? `${formatDuration(exec.slice.start_seconds)} → ${formatDuration(exec.slice.end_seconds)}`
+                      {slice.slice
+                        ? `${formatDuration(slice.slice.start_seconds)} → ${formatDuration(slice.slice.end_seconds)}`
                         : "—"}
                     </div>
                     <div className="col-span-3">
-                      {exec.slice && (
+                      {slice.slice && (
                         <DurationBar
-                          value={exec.slice.duration_seconds}
+                          value={slice.slice.duration_seconds}
                           max={data.maxAudioDuration}
-                          label={formatDuration(exec.slice.duration_seconds)}
+                          label={formatDuration(slice.slice.duration_seconds)}
                         />
                       )}
                     </div>
                     <div className="col-span-1 num text-2xs text-mute text-right">
-                      {formatRelative(exec.created_at)}
+                      {formatRelative(slice.created_at)}
                     </div>
                   </Link>
                 </li>
