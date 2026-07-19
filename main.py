@@ -134,6 +134,8 @@ def cmd_generate(args: argparse.Namespace, settings: Settings) -> int:
         # C'est un modèle Pydantic imbriqué, on le met à jour proprement
         new_selection = settings.selection.model_copy(update={"recency_decay_minutes": args.recency_decay_minutes})
         override["selection"] = new_selection
+    if args.category_cooldown is not None:
+        override["category_cooldown"] = args.category_cooldown
 
     if override:
         settings = settings.model_copy(update=override)
@@ -225,6 +227,8 @@ def build_parser() -> argparse.ArgumentParser:
                        help="override clip_duration (seconds) from config")
     p_gen.add_argument("--recency-decay-minutes", type=int, default=None,
                        help="override selection.recency_decay_minutes from config")
+    p_gen.add_argument("--category-cooldown", type=int, default=None,
+                       help="override category_cooldown from config")
     p_gen.add_argument("--seed", type=int, default=None,
                        help="RNG seed for reproducible selection")
     p_gen.set_defaults(func=cmd_generate)

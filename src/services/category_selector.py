@@ -55,7 +55,10 @@ class CategorySelector(BaseSelector[CategoryRecord]):
         if not candidates:
             raise NoAvailableCategoryError("no categories registered in DB")
 
-        if self.cooldown > 0:
+        # Safeguard: If the total number of categories is less than or equal
+        # to the cooldown K, applying the cooldown would block everything.
+        # We bypass it to keep the pipeline running.
+        if self.cooldown > 0 and len(candidates) > self.cooldown:
             recent_ids = set(self.execution_repo.recent_category_ids(self.cooldown))
             if recent_ids:
                 log.debug("cooldown excludes category ids: %s", recent_ids)
@@ -66,6 +69,11 @@ class CategorySelector(BaseSelector[CategoryRecord]):
                     f"(K={self.cooldown})"
                 )
             candidates = filtered
+        elif self.cooldown > 0 and len(candidates) <= self.cooldown:
+            log.warning(
+                "Total categories (%d) <= cooldown K (%d). Ignoring cooldown to avoid empty pool.",
+                len(candidates), self.cooldown
+            )
 
         chosen = self._select_weighted(candidates)
         log.info(
