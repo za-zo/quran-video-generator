@@ -215,13 +215,18 @@ class GenerationOrchestrator:
                 base_dir=self.settings.temp_dir,
             ) as tmp:
                 # 3a. Download each selected video.
+                # VideoSegment is frozen, so we use dataclasses.replace to set the local path.
+                downloaded_segments = []
                 for seg in segments:
-                    seg.local_path = media_downloader.download_to_temp(
+                    local_path = media_downloader.download_to_temp(
                         seg.source_url, tmp,
                         expected_extension=".mp4",
                         filename_hint=f"video_{seg.video_id}",
                         expect_video=True,
                     )
+                    downloaded_segments.append(replace(seg, local_path=local_path))
+                
+                segments = downloaded_segments
 
                 # 3b. Build the final MP4 locally.
                 output_path = self._build_output_path(audio, clip, execution_id)
