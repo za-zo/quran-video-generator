@@ -52,7 +52,7 @@ export interface ExecutionOutput {
   height: number;
 }
 
-export type ExecutionStatus = "pending" | "success" | "failed";
+export type ExecutionStatus = "pending" | "success" | "failed" | "canceled";
 
 export interface ExecutionDoc {
   _id: ObjectId | string;

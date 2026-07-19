@@ -21,6 +21,10 @@ const STATUS_STYLES: Record<ExecutionStatus, { label: string; cls: string }> = {
     label: "FAILED",
     cls: "text-failed border-failed/40 bg-failed/5",
   },
+  canceled: {
+    label: "CANCELED",
+    cls: "text-mute border-rule/40 bg-rule/5",
+  },
 };
 
 export function StatusBadge({ status }: { status: ExecutionStatus }) {

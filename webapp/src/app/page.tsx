@@ -38,9 +38,9 @@ async function getData() {
     .collection("executions")
     .aggregate([{ $group: { _id: "$status", count: { $sum: 1 } } }])
     .toArray();
-  const execByStatus: Record<string, number> = { pending: 0, success: 0, failed: 0 };
+  const execByStatus: Record<string, number> = { pending: 0, success: 0, failed: 0, canceled: 0 };
   for (const c of execCountsRaw) execByStatus[c._id] = c.count;
-  const execTotal = execByStatus.pending + execByStatus.success + execByStatus.failed;
+  const execTotal = execByStatus.pending + execByStatus.success + execByStatus.failed + execByStatus.canceled;
 
   const audiosByUsage = await db
     .collection("audios")
@@ -122,6 +122,8 @@ export default async function DashboardPage() {
                   <>Ran <span className="text-success">{formatRelative(data.latest.created_at)}</span></>
                 ) : data.latest.status === "failed" ? (
                   <>Failed <span className="text-failed">{formatRelative(data.latest.created_at)}</span></>
+                ) : data.latest.status === "canceled" ? (
+                  <>Canceled <span className="text-mute">{formatRelative(data.latest.created_at)}</span></>
                 ) : (
                   <>Pending <span className="text-warn">{formatRelative(data.latest.created_at)}</span></>
                 )}
@@ -165,6 +167,8 @@ export default async function DashboardPage() {
                 {" success · "}
                 <span className="text-failed">{data.execByStatus.failed}</span>
                 {" failed · "}
+                <span className="text-mute">{data.execByStatus.canceled}</span>
+                {" canceled · "}
                 <span className="text-warn">{data.execByStatus.pending}</span>
                 {" pending"}
               </>

@@ -19,7 +19,7 @@ import { formatDuration, formatRelative } from "@/lib/format";
 async function getExecutions(status: string | null) {
   const db = await getDb();
   const match: Record<string, unknown> = {};
-  if (status && ["pending", "success", "failed"].includes(status)) {
+  if (status && ["pending", "success", "failed", "canceled"].includes(status)) {
     match.status = status;
   }
   const pipeline = [
@@ -80,6 +80,7 @@ export default async function ExecutionsPage({
     { label: "all", value: null, count: null },
     { label: "success", value: "success", count: null },
     { label: "failed", value: "failed", count: null },
+    { label: "canceled", value: "canceled", count: null },
     { label: "pending", value: "pending", count: null },
   ];
 

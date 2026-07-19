@@ -202,11 +202,11 @@ export default async function ExecutionDetailPage({
           </section>
         )}
 
-        {/* Error: if failed */}
-        {exec.status === "failed" && exec.error_message && (
+        {/* Error: if failed or canceled */}
+        {(exec.status === "failed" || exec.status === "canceled") && exec.error_message && (
           <section>
-            <div className="eyebrow mb-3 hairline-b pb-2 text-failed">
-              ERROR
+            <div className={`eyebrow mb-3 hairline-b pb-2 ${exec.status === "canceled" ? "text-mute" : "text-failed"}`}>
+              {exec.status === "canceled" ? "CANCELED" : "ERROR"}
             </div>
             <pre className="hairline-all p-4 bg-failed/[0.03] text-sm text-failed font-mono whitespace-pre-wrap break-words">
               {exec.error_message}

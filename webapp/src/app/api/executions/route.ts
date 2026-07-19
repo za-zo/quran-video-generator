@@ -19,7 +19,7 @@ export async function GET(req: NextRequest) {
   const limit = Math.min(200, Number(req.nextUrl.searchParams.get("limit") ?? 50));
 
   const match: Record<string, unknown> = {};
-  if (status && ["pending", "success", "failed"].includes(status)) {
+  if (status && ["pending", "success", "failed", "canceled"].includes(status)) {
     match.status = status;
   }
 

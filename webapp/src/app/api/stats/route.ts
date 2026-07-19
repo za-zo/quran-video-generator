@@ -57,6 +57,7 @@ export async function GET() {
     pending: 0,
     success: 0,
     failed: 0,
+    canceled: 0,
   };
   for (const c of execCounts) {
     execByStatus[c._id] = c.count;
@@ -117,11 +118,13 @@ export async function GET() {
       pending: execByStatus.pending || 0,
       success: execByStatus.success || 0,
       failed: execByStatus.failed || 0,
+      canceled: execByStatus.canceled || 0,
     },
     executions_total:
       (execByStatus.pending || 0) +
       (execByStatus.success || 0) +
-      (execByStatus.failed || 0),
+      (execByStatus.failed || 0) +
+      (execByStatus.canceled || 0),
     most_used_audio: mostUsedAudio,
     least_used_audio: leastUsedAudio,
     most_used_category: mostUsedCategory,

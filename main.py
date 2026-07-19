@@ -25,7 +25,9 @@ from __future__ import annotations
 
 import argparse
 import random
+import signal
 import sys
+from datetime import datetime, timezone
 from typing import Any
 
 from src.config.settings import Settings, get_settings
@@ -139,6 +141,31 @@ def cmd_generate(args: argparse.Namespace, settings: Settings) -> int:
 
     rng = random.Random(args.seed) if args.seed is not None else random.Random()
     db = get_db()
+
+    # --- Graceful shutdown handler ---
+    # If GitHub Actions cancels the job or a user presses Ctrl+C, we catch
+    # the signal and mark any pending executions for this run as 'canceled'.
+    def handle_interrupt(signum, frame):
+        sig_name = signal.Signals(signum).name
+        log.warning("Received %s. Marking pending executions as canceled...", sig_name)
+        try:
+            res = db["executions"].update_many(
+                {"status": "pending", "github_run_id": settings.github_run_id},
+                {"$set": {
+                    "status": "canceled",
+                    "error_message": f"Run interrupted by {sig_name} signal.",
+                    "completed_at": datetime.now(timezone.utc)
+                }}
+            )
+            log.info("Marked %d pending execution(s) as canceled.", res.modified_count)
+        except Exception as exc:
+            log.error("Failed to mark executions as canceled: %s", exc)
+        sys.exit(1)
+
+    signal.signal(signal.SIGINT, handle_interrupt)
+    signal.signal(signal.SIGTERM, handle_interrupt)
+    # ----------------------------------
+
     orchestrator = GenerationOrchestrator(
         db=db,
         settings=settings,
