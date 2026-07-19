@@ -49,6 +49,11 @@ on:
         required: false
         default: ""
         type: string
+      recency_decay_minutes:
+        description: "Override recency_decay_minutes (smaller = faster reuse for testing)"
+        required: false
+        default: ""
+        type: string
       log_level:
         description: "Log level for the pipeline (DEBUG to see all details)"
         required: false
@@ -116,14 +121,17 @@ jobs:
             echo "audio_count=1" >> $GITHUB_OUTPUT
             echo "clips_per_audio=1" >> $GITHUB_OUTPUT
             echo "clip_duration=15" >> $GITHUB_OUTPUT
+            echo "recency_decay_minutes=1" >> $GITHUB_OUTPUT
           else
             # Schedule path: github.event.inputs.* is empty, fall back to defaults.
             AC="${{ github.event.inputs.audio_count || '1' }}"
             CPA="${{ github.event.inputs.clips_per_audio }}"
             CD="${{ github.event.inputs.clip_duration }}"
+            RDM="${{ github.event.inputs.recency_decay_minutes }}"
             echo "audio_count=$AC" >> $GITHUB_OUTPUT
             echo "clips_per_audio=$CPA" >> $GITHUB_OUTPUT
             echo "clip_duration=$CD" >> $GITHUB_OUTPUT
+            echo "recency_decay_minutes=$RDM" >> $GITHUB_OUTPUT
           fi
 
       - name: Verify configuration
@@ -148,7 +156,8 @@ jobs:
           python main.py generate \
             --audio-count "${{ steps.params.outputs.audio_count }}" \
             ${{ steps.params.outputs.clips_per_audio && format('--clips-per-audio {0}', steps.params.outputs.clips_per_audio) || '' }} \
-            ${{ steps.params.outputs.clip_duration && format('--clip-duration {0}', steps.params.outputs.clip_duration) || '' }}
+            ${{ steps.params.outputs.clip_duration && format('--clip-duration {0}', steps.params.outputs.clip_duration) || '' }} \
+            ${{ steps.params.outputs.recency_decay_minutes && format('--recency-decay-minutes {0}', steps.params.outputs.recency_decay_minutes) || '' }}
 
       - name: Print stats
         if: always()

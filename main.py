@@ -130,6 +130,11 @@ def cmd_generate(args: argparse.Namespace, settings: Settings) -> int:
         override["clips_per_audio"] = args.clips_per_audio
     if args.clip_duration is not None:
         override["clip_duration"] = args.clip_duration
+    if args.recency_decay_minutes is not None:
+        # C'est un modèle Pydantic imbriqué, on le met à jour proprement
+        new_selection = settings.selection.model_copy(update={"recency_decay_minutes": args.recency_decay_minutes})
+        override["selection"] = new_selection
+
     if override:
         settings = settings.model_copy(update=override)
         log.info("CLI overrides applied: %s", override)
@@ -218,6 +223,8 @@ def build_parser() -> argparse.ArgumentParser:
                        help="override clips_per_audio from config")
     p_gen.add_argument("--clip-duration", type=int, default=None,
                        help="override clip_duration (seconds) from config")
+    p_gen.add_argument("--recency-decay-minutes", type=int, default=None,
+                       help="override selection.recency_decay_minutes from config")
     p_gen.add_argument("--seed", type=int, default=None,
                        help="RNG seed for reproducible selection")
     p_gen.set_defaults(func=cmd_generate)
