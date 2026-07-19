@@ -213,25 +213,6 @@ def get_settings(config_path: str | None = None) -> Settings:
     """Build and cache the singleton :class:`Settings` instance.
 
     Precedence (highest wins): env vars > .env > YAML > defaults.
-
-    ``config_path`` lets tests inject a custom YAML file; in normal operation
-    the path comes from ``QVG_CONFIG_FILE`` or defaults to ``config.yaml``.
-
-    Implementation note
-    -------------------
-    Pydantic v2 ``BaseSettings`` gives explicit kwargs precedence over
-    environment variables. That means if a YAML file contains
-    ``mongodb_uri: ""`` (an empty string placeholder, as our
-    ``config.example.yaml`` does for every secret), passing that empty
-    string as a kwarg would *silently override* the real value coming
-    from ``MONGODB_URI`` in the environment — which is exactly the bug
-    that broke the GitHub Actions run even when secrets were set.
-
-    Fix: drop any top-level YAML scalar that is empty / None / whitespace
-    before constructing ``Settings``. Those fields then fall back to
-    either the env var (if set) or the field default (empty string),
-    and ``require_cloud_credentials()`` can surface a clear error if
-    both are missing.
     """
     yaml_path = Path(
         config_path
@@ -259,6 +240,17 @@ def get_settings(config_path: str | None = None) -> Settings:
             continue
         else:
             filtered[k] = v
+
+    # =====================================================================
+    # FIX: Pydantic v2 gives explicit kwargs precedence over env vars.
+    # Since we want env vars (e.g., LOG_LEVEL from GitHub Actions) to override
+    # YAML config, we drop any key from the filtered kwargs if it's present
+    # as an environment variable.
+    # =====================================================================
+    env_keys = {k.lower() for k in os.environ}
+    for k in list(filtered.keys()):
+        if k in env_keys:
+            del filtered[k]
 
     # ``Settings`` itself will pick up env vars / .env on top of these kwargs.
     return Settings(**filtered)

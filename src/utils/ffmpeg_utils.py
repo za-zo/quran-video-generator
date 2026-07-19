@@ -624,6 +624,7 @@ def build_clip_one_pass(
         "-map", f"{audio_idx}:a",
         "-c:v", video_codec,
         "-preset", video_preset,
+        "-crf", "23",  # Qualité visuelle optimale, taille de fichier réduite
         "-r", str(fps),
         "-pix_fmt", "yuv420p",
         *_gop_flags(fps),

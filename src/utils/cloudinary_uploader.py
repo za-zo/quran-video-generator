@@ -106,15 +106,13 @@ def upload_video(
     log.info("uploading %s -> cloudinary public_id=%s", local_path, public_id)
 
     try:
-        resp = cloudinary.uploader.upload(
+        # Use upload_large to automatically chunk the file (default 20MB chunks).
+        # This bypasses Nginx 413 Request Entity Too Large errors for bigger videos.
+        resp = cloudinary.uploader.upload_large(
             str(local_path),
             resource_type="video",
             public_id=public_id,
             overwrite=True,
-            # Don't let Cloudinary derive a transformation – we want the
-            # exact bytes we uploaded so the duration/width/height reported
-            # back match what FFmpeg produced.
-            eager=None,
             invalidate=False,
         )
     except Exception as exc:
