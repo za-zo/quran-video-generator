@@ -28,9 +28,15 @@ env/
 ENV/
 
 # === Project runtime artefacts ===
-temp/
-output/
-logs/
+# Track the folders via .gitkeep but ignore their contents.
+temp/*
+!temp/.gitkeep
+output/*
+!output/.gitkeep
+logs/*
+!logs/.gitkeep
+data/*
+!data/.gitkeep
 data/*.db
 data/*.db-journal
 data/*.db-wal
