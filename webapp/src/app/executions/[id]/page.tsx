@@ -100,7 +100,7 @@ export default async function ExecutionDetailPage({
         actions={<StatusBadge status={(run as any).status} />}
         meta={
           <span>
-            <span className="num text-xs">{run._id}</span>
+            <span className="num text-xs">{String(run._id)}</span>
             {" · "}
             created {formatTimestamp((run as any).created_at)}
             {(run as any).completed_at && (

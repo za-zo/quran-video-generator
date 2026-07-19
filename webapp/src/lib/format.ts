@@ -16,9 +16,9 @@ export function formatDuration(seconds: number | null | undefined): string {
   return `${h}h ${mm.toString().padStart(2, "0")}m`;
 }
 
-export function formatTimestamp(d: Date | null | undefined): string {
-  if (!d) return "never";
-  const date = typeof d === "string" ? new Date(d) : d;
+export function formatTimestamp(d: Date | string | number | null | undefined): string {
+  if (d === null || d === undefined) return "never";
+  const date = new Date(d);
   if (isNaN(date.getTime())) return "—";
   return date.toLocaleString("en-GB", {
     year: "numeric",
@@ -30,9 +30,9 @@ export function formatTimestamp(d: Date | null | undefined): string {
   });
 }
 
-export function formatRelative(d: Date | null | undefined): string {
-  if (!d) return "never";
-  const date = typeof d === "string" ? new Date(d) : d;
+export function formatRelative(d: Date | string | number | null | undefined): string {
+  if (d === null || d === undefined) return "never";
+  const date = new Date(d);
   if (isNaN(date.getTime())) return "—";
   const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
   if (seconds < 60) return "just now";
