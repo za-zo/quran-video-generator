@@ -2,6 +2,11 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { FormField, useFormValidation, validators } from "./FormField";
+
+type CategoryValues = {
+  name: string;
+};
 
 export function CategoryEditForm({
   category,
@@ -11,11 +16,19 @@ export function CategoryEditForm({
   const router = useRouter();
   const [name, setName] = useState(category.name);
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
+
+  const { errors, validate, clearField } = useFormValidation<CategoryValues>({
+    name: validators.required("Name"),
+  });
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setError(null);
+    setFormError(null);
+
+    const ok = validate({ name });
+    if (!ok) return;
+
     setSubmitting(true);
     try {
       const res = await fetch(`/api/categories/${category._id}`, {
@@ -25,45 +38,40 @@ export function CategoryEditForm({
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        setError(body.error || `request failed (${res.status})`);
+        setFormError(body.error || `request failed (${res.status})`);
         setSubmitting(false);
         return;
       }
       router.push("/categories");
       router.refresh();
     } catch (err) {
-      setError(String(err));
+      setFormError(String(err));
       setSubmitting(false);
     }
   }
 
   return (
-    <form onSubmit={onSubmit} className="space-y-8">
-      <div>
-        <label className="block eyebrow mb-3">
-          Name<span className="text-accent ml-1">*</span>
-        </label>
+    <form onSubmit={onSubmit} noValidate className="space-y-6">
+      <FormField label="Name" required error={errors.name}>
         <input
           type="text"
           value={name}
-          onChange={(e) => setName(e.target.value)}
-          required
-          className="field-input"
+          onChange={(e) => {
+            setName(e.target.value);
+            clearField("name");
+          }}
+          className={`field-input ${errors.name ? "field-input-error" : ""}`}
         />
-      </div>
+      </FormField>
 
-      {error && (
+      {formError && (
         <div className="text-sm text-failed">
-          {error}
+          {formError}
         </div>
       )}
 
       <div className="flex items-center gap-3 pt-2">
-        <button
-          type="submit"
-          disabled={submitting}
-          className="btn-primary"
-        >
+        <button type="submit" disabled={submitting} className="btn-primary">
           {submitting ? "Saving…" : "Save changes"}
         </button>
       </div>

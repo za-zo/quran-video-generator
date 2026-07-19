@@ -6,6 +6,13 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { FormField, useFormValidation, validators } from "./FormField";
+
+type AddVideoValues = {
+  name: string;
+  sourceUrl: string;
+  duration: string;
+};
 
 export function AddVideoForm({ categoryId }: { categoryId: string }) {
   const router = useRouter();
@@ -13,11 +20,25 @@ export function AddVideoForm({ categoryId }: { categoryId: string }) {
   const [sourceUrl, setSourceUrl] = useState("");
   const [duration, setDuration] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
+
+  const { errors, validate, clearField } = useFormValidation<AddVideoValues>({
+    name: validators.required("Name"),
+    sourceUrl: (v) => {
+      const r = validators.required("Source URL")(v);
+      if (r) return r;
+      return validators.url("Source URL")(v);
+    },
+    duration: validators.nonNegativeNumber("Duration"),
+  });
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setError(null);
+    setFormError(null);
+
+    const ok = validate({ name, sourceUrl, duration });
+    if (!ok) return;
+
     setSubmitting(true);
 
     const payload: Record<string, unknown> = {
@@ -26,13 +47,7 @@ export function AddVideoForm({ categoryId }: { categoryId: string }) {
       source_url: sourceUrl.trim(),
     };
     if (duration) {
-      const d = Number(duration);
-      if (isNaN(d) || d < 0) {
-        setError("duration must be a non-negative number");
-        setSubmitting(false);
-        return;
-      }
-      payload.duration_seconds = d;
+      payload.duration_seconds = Number(duration);
     }
 
     try {
@@ -43,7 +58,7 @@ export function AddVideoForm({ categoryId }: { categoryId: string }) {
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        setError(body.error || `request failed (${res.status})`);
+        setFormError(body.error || `request failed (${res.status})`);
         setSubmitting(false);
         return;
       }
@@ -52,62 +67,64 @@ export function AddVideoForm({ categoryId }: { categoryId: string }) {
       setDuration("");
       router.refresh();
     } catch (err) {
-      setError(String(err));
+      setFormError(String(err));
     } finally {
       setSubmitting(false);
     }
   }
 
   return (
-    <form onSubmit={onSubmit} className="space-y-6">
+    <form onSubmit={onSubmit} noValidate className="space-y-6">
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div>
-          <label className="block eyebrow mb-3">
-            Name<span className="text-accent ml-1">*</span>
-          </label>
+        <FormField label="Name" required error={errors.name}>
           <input
             type="text"
             value={name}
-            onChange={(e) => setName(e.target.value)}
-            required
-            className="field-input"
+            onChange={(e) => {
+              setName(e.target.value);
+              clearField("name");
+            }}
+            className={`field-input ${errors.name ? "field-input-error" : ""}`}
           />
-        </div>
+        </FormField>
         <div className="md:col-span-2">
-          <label className="block eyebrow mb-3">
-            Source URL<span className="text-accent ml-1">*</span>
-          </label>
-          <input
-            type="url"
-            value={sourceUrl}
-            onChange={(e) => setSourceUrl(e.target.value)}
-            required
-            placeholder="https://example.com/sea_0.mp4"
-            className="field-input"
-          />
+          <FormField label="Source URL" required error={errors.sourceUrl}>
+            <input
+              type="url"
+              value={sourceUrl}
+              onChange={(e) => {
+                setSourceUrl(e.target.value);
+                clearField("sourceUrl");
+              }}
+              placeholder="https://example.com/sea_0.mp4"
+              className={`field-input ${errors.sourceUrl ? "field-input-error" : ""}`}
+            />
+          </FormField>
         </div>
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 items-end">
-        <div>
-          <label className="block eyebrow mb-3">Duration (s)</label>
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 items-start">
+        <FormField
+          label="Duration (s)"
+          error={errors.duration}
+          hint="Optional."
+        >
           <input
             type="number"
             step="0.1"
             min="0"
             value={duration}
-            onChange={(e) => setDuration(e.target.value)}
-            className="field-input"
+            onChange={(e) => {
+              setDuration(e.target.value);
+              clearField("duration");
+            }}
+            className={`field-input ${errors.duration ? "field-input-error" : ""}`}
           />
-        </div>
-        <div className="md:col-span-3 flex items-center gap-4">
-          <button
-            type="submit"
-            disabled={submitting}
-            className="btn-primary"
-          >
+        </FormField>
+        <div className="md:col-span-3 flex items-center gap-4 pt-7">
+          <button type="submit" disabled={submitting} className="btn-primary">
             {submitting ? "Adding…" : "Add video"}
           </button>
-          {error && <span className="text-sm text-failed">{error}</span>}
+          {formError && <span className="text-sm text-failed">{formError}</span>}
         </div>
       </div>
     </form>

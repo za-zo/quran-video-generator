@@ -3,6 +3,13 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { FormField, useFormValidation, validators } from "./FormField";
+
+type AudioValues = {
+  name: string;
+  sourceUrl: string;
+  duration: string;
+};
 
 export function AudioForm({ audio }: { audio?: { _id: string; name: string; source_url: string; duration_seconds: number } }) {
   const router = useRouter();
@@ -11,12 +18,26 @@ export function AudioForm({ audio }: { audio?: { _id: string; name: string; sour
   const [sourceUrl, setSourceUrl] = useState(audio?.source_url ?? "");
   const [duration, setDuration] = useState(audio?.duration_seconds?.toString() ?? "");
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+
+  const { errors, validate, clearField } = useFormValidation<AudioValues>({
+    name: validators.required("Name"),
+    sourceUrl: (v) => {
+      const r = validators.required("Source URL")(v);
+      if (r) return r;
+      return validators.url("Source URL")(v);
+    },
+    duration: validators.nonNegativeNumber("Duration"),
+  });
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setError(null);
+    setFormError(null);
+
+    const ok = validate({ name, sourceUrl, duration });
+    if (!ok) return;
+
     setSubmitting(true);
 
     const payload: Record<string, unknown> = {
@@ -24,13 +45,7 @@ export function AudioForm({ audio }: { audio?: { _id: string; name: string; sour
       source_url: sourceUrl.trim(),
     };
     if (duration) {
-      const d = Number(duration);
-      if (isNaN(d) || d < 0) {
-        setError("duration must be a non-negative number");
-        setSubmitting(false);
-        return;
-      }
-      payload.duration_seconds = d;
+      payload.duration_seconds = Number(duration);
     }
 
     try {
@@ -42,7 +57,7 @@ export function AudioForm({ audio }: { audio?: { _id: string; name: string; sour
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        setError(body.error || `request failed (${res.status})`);
+        setFormError(body.error || `request failed (${res.status})`);
         setSubmitting(false);
         return;
       }
@@ -52,7 +67,7 @@ export function AudioForm({ audio }: { audio?: { _id: string; name: string; sour
         router.refresh();
       }
     } catch (err) {
-      setError(String(err));
+      setFormError(String(err));
     } finally {
       setSubmitting(false);
     }
@@ -64,64 +79,71 @@ export function AudioForm({ audio }: { audio?: { _id: string; name: string; sour
       const res = await fetch(`/api/audios/${audio!._id}`, { method: "DELETE" });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        setError(body.error || `delete failed (${res.status})`);
+        setFormError(body.error || `delete failed (${res.status})`);
         setSubmitting(false);
         return;
       }
       router.push("/audios");
     } catch (err) {
-      setError(String(err));
+      setFormError(String(err));
       setSubmitting(false);
     }
   }
 
   return (
     <>
-      <form onSubmit={onSubmit} className="space-y-8 max-w-2xl">
-        <div>
-          <label className="block eyebrow mb-3">
-            Name<span className="text-accent ml-1">*</span>
-          </label>
+      <form onSubmit={onSubmit} noValidate className="space-y-6 max-w-2xl">
+        <FormField label="Name" required error={errors.name}>
           <input
             type="text"
             value={name}
-            onChange={(e) => setName(e.target.value)}
-            required
-            className="field-input"
+            onChange={(e) => {
+              setName(e.target.value);
+              clearField("name");
+            }}
+            className={`field-input ${errors.name ? "field-input-error" : ""}`}
           />
-        </div>
-        <div>
-          <label className="block eyebrow mb-3">
-            Source URL<span className="text-accent ml-1">*</span>
-          </label>
+        </FormField>
+        <FormField label="Source URL" required error={errors.sourceUrl}>
           <input
             type="url"
             value={sourceUrl}
-            onChange={(e) => setSourceUrl(e.target.value)}
-            required
-            className="field-input"
+            onChange={(e) => {
+              setSourceUrl(e.target.value);
+              clearField("sourceUrl");
+            }}
+            className={`field-input ${errors.sourceUrl ? "field-input-error" : ""}`}
           />
-        </div>
-        <div>
-          <label className="block eyebrow mb-3">Duration (seconds)</label>
+        </FormField>
+        <FormField
+          label="Duration (seconds)"
+          error={errors.duration}
+          hint="Optional — leave blank to let the pipeline probe it."
+          className="max-w-xs"
+        >
           <input
             type="number"
             step="0.1"
             min="0"
             value={duration}
-            onChange={(e) => setDuration(e.target.value)}
-            className="field-input w-48"
+            onChange={(e) => {
+              setDuration(e.target.value);
+              clearField("duration");
+            }}
+            className={`field-input w-48 ${errors.duration ? "field-input-error" : ""}`}
           />
-        </div>
-        <div className="flex items-center gap-4">
-          <button
-            type="submit"
-            disabled={submitting}
-            className="btn-primary"
-          >
+        </FormField>
+
+        {formError && (
+          <div className="text-sm text-failed hairline-t pt-4">
+            {formError}
+          </div>
+        )}
+
+        <div className="flex items-center gap-4 pt-2">
+          <button type="submit" disabled={submitting} className="btn-primary">
             {submitting ? "Saving…" : isNew ? "Add audio" : "Save changes"}
           </button>
-          {error && <span className="text-sm text-failed">{error}</span>}
         </div>
         {!isNew && (
           <div className="pt-6 hairline-t">
