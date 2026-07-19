@@ -84,7 +84,7 @@ export default async function ExecutionDetailPage({
   if (!run) notFound();
 
   const page = Math.max(1, parseInt(searchParams.page ?? "1", 10) || 1);
-  const { slices, totalPages } = await getSlices(run._id, page);
+  const { slices, totalPages } = await getSlices(String(run._id), page);
 
   const githubRepo = process.env.GITHUB_REPO || "";
   const actionsUrl =
