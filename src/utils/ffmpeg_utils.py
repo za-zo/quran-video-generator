@@ -624,11 +624,12 @@ def build_clip_one_pass(
         "-map", f"{audio_idx}:a",
         "-c:v", video_codec,
         "-preset", video_preset,
-        "-crf", "23",  # Qualité visuelle optimale, taille de fichier réduite
+        "-crf", "28",            # Passé de 23 à 28 pour réduire drastiquement la taille
         "-r", str(fps),
         "-pix_fmt", "yuv420p",
         *_gop_flags(fps),
         "-c:a", audio_codec,
+        "-b:a", "128k",          # Limite l'audio à 128kbits (suffisant pour la voix)
         "-shortest",
         str(dst_path),
     ])
