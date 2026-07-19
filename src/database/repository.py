@@ -1,21 +1,50 @@
-"""Repository pattern – thin data-access layer on top of SQLAlchemy.
+"""Repository pattern – thin data-access layer on top of MongoDB.
 
-Each repository owns one table and exposes only the operations the rest of
-the application needs. Selectors and the orchestrator depend on these
-abstractions, never on raw SQL or ORM objects leaking outside this module.
+Each repository owns one collection and exposes only the operations the rest
+of the application needs. Selectors and the orchestrator depend on these
+abstractions, never on raw Mongo documents leaking outside this module.
+
+Document shape is defined in section 3.2 of the migration brief. Field
+names here MUST stay in sync with the Next.js webapp's data access layer.
+
+ID convention
+-------------
+Documents use ObjectId ``_id``. Repository methods accept/return ``str``
+IDs at the boundary (``str(ObjectId(...))``) so the rest of the codebase
+stays decoupled from pymongo specifics.
+
+Transactions
+------------
+Multi-step writes (mark audio + category + N videos used after a successful
+job) are issued as sequential ``update_one`` calls without an explicit
+Mongo session/transaction. Rationale:
+  * On a free Atlas tier, transactions work but add latency and require a
+    replica set (which Atlas provides by default).
+  * The worst-case failure mode here is a partial usage-count bump, which
+    only slightly skews future weighted selection – not a data-integrity
+    disaster. The execution document itself is marked success/failed in
+    its own write, so the truth of "did this clip ship?" is never
+    ambiguous.
+If we later need stronger consistency we can wrap ``_mark_used`` in a
+``client.start_session()`` + ``with session.start_transaction()`` block
+without changing any caller.
 """
 
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from pathlib import Path
-from typing import Iterable
+from typing import Any, Iterable
 
-from sqlalchemy import select
-from sqlalchemy.orm import Session
+from bson import ObjectId
+from pymongo.database import Database
 
-from src.database.models import Audio, Category, GenerationJob, Video
 from src.exceptions import DatabaseIntegrityError
+from src.models import (
+    AudioRecord,
+    CategoryRecord,
+    GenerationJobResult,
+    VideoRecord,
+)
 from src.utils.logger import get_logger
 
 log = get_logger(__name__)
@@ -25,193 +54,456 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _oid(id_: str | ObjectId) -> ObjectId:
+    """Coerce a str id to ObjectId, raising a clear error on bad input."""
+    if isinstance(id_, ObjectId):
+        return id_
+    try:
+        return ObjectId(id_)
+    except Exception as exc:
+        raise DatabaseIntegrityError(f"invalid ObjectId: {id_!r}") from exc
+
+
+def _audio_from_doc(d: dict[str, Any]) -> AudioRecord:
+    return AudioRecord(
+        id=str(d["_id"]),
+        name=d.get("name", ""),
+        source_url=d.get("source_url", ""),
+        duration_seconds=float(d.get("duration_seconds") or 0.0),
+        usage_count=int(d.get("usage_count") or 0),
+        last_used_at=d.get("last_used_at"),
+    )
+
+
+def _category_from_doc(d: dict[str, Any]) -> CategoryRecord:
+    return CategoryRecord(
+        id=str(d["_id"]),
+        name=d.get("name", ""),
+        usage_count=int(d.get("usage_count") or 0),
+        last_used_at=d.get("last_used_at"),
+    )
+
+
+def _video_from_doc(d: dict[str, Any]) -> VideoRecord:
+    return VideoRecord(
+        id=str(d["_id"]),
+        category_id=str(d.get("category_id")) if d.get("category_id") else "",
+        name=d.get("name", ""),
+        source_url=d.get("source_url", ""),
+        duration_seconds=float(d.get("duration_seconds") or 0.0),
+        usage_count=int(d.get("usage_count") or 0),
+        last_used_at=d.get("last_used_at"),
+    )
+
+
 # --- AudioRepo --------------------------------------------------------------
 
 class AudioRepo:
-    def __init__(self, session: Session) -> None:
-        self.session = session
+    def __init__(self, db: Database) -> None:
+        self.db = db
+        self.col = db["audios"]
 
-    def get_or_create(self, filename: str, duration_seconds: float) -> Audio:
-        existing = self.session.execute(
-            select(Audio).where(Audio.filename == filename)
-        ).scalar_one_or_none()
+    def create(self, name: str, source_url: str, duration_seconds: float = 0.0) -> AudioRecord:
+        """Insert a new audio document. Raises if name already exists."""
+        existing = self.col.find_one({"name": name})
         if existing is not None:
-            # Refresh duration in case the file was re-encoded.
-            if existing.duration_seconds != duration_seconds:
-                existing.duration_seconds = duration_seconds
-                self.session.flush()
-            return existing
-        audio = Audio(filename=filename, duration_seconds=duration_seconds)
-        self.session.add(audio)
-        self.session.flush()
-        return audio
+            raise DatabaseIntegrityError(f"audio with name {name!r} already exists")
+        doc = {
+            "name": name,
+            "source_url": source_url,
+            "duration_seconds": float(duration_seconds),
+            "usage_count": 0,
+            "last_used_at": None,
+            "created_at": _utcnow(),
+        }
+        res = self.col.insert_one(doc)
+        return _audio_from_doc({**doc, "_id": res.inserted_id})
 
-    def get(self, audio_id: int) -> Audio | None:
-        return self.session.get(Audio, audio_id)
+    def get_or_create(self, name: str, source_url: str, duration_seconds: float = 0.0) -> AudioRecord:
+        """Lookup by name; create if missing. Updates source_url/duration if changed."""
+        existing = self.col.find_one({"name": name})
+        if existing is not None:
+            updates: dict[str, Any] = {}
+            if existing.get("source_url") != source_url:
+                updates["source_url"] = source_url
+            if float(existing.get("duration_seconds") or 0) != float(duration_seconds):
+                updates["duration_seconds"] = float(duration_seconds)
+            if updates:
+                self.col.update_one({"_id": existing["_id"]}, {"$set": updates})
+                existing.update(updates)
+            return _audio_from_doc(existing)
+        return self.create(name, source_url, duration_seconds)
 
-    def list_all(self) -> list[Audio]:
-        return list(self.session.execute(select(Audio).order_by(Audio.id)).scalars())
+    def get(self, audio_id: str) -> AudioRecord | None:
+        doc = self.col.find_one({"_id": _oid(audio_id)})
+        return _audio_from_doc(doc) if doc else None
 
-    def mark_used(self, audio_id: int) -> None:
-        audio = self.get(audio_id)
-        if audio is None:
+    def list_all(self) -> list[AudioRecord]:
+        # Sort by insertion order (ObjectId generation time).
+        return [_audio_from_doc(d) for d in self.col.find().sort("_id", 1)]
+
+    def mark_used(self, audio_id: str) -> None:
+        res = self.col.update_one(
+            {"_id": _oid(audio_id)},
+            {"$inc": {"usage_count": 1}, "$set": {"last_used_at": _utcnow()}},
+        )
+        if res.matched_count == 0:
             raise DatabaseIntegrityError(f"Audio id={audio_id} not found")
-        audio.usage_count += 1
-        audio.last_used_at = _utcnow()
-        self.session.flush()
 
-    def stats(self) -> list[tuple[str, int, datetime | None]]:
+    def update_duration(self, audio_id: str, duration_seconds: float) -> None:
+        self.col.update_one(
+            {"_id": _oid(audio_id)},
+            {"$set": {"duration_seconds": float(duration_seconds)}},
+        )
+
+    def delete(self, audio_id: str) -> bool:
+        res = self.col.delete_one({"_id": _oid(audio_id)})
+        return res.deleted_count > 0
+
+    def stats(self) -> list[tuple[str, int, datetime | None, str]]:
         rows = self.list_all()
-        return [(a.filename, a.usage_count, a.last_used_at) for a in rows]
+        return [(a.name, a.usage_count, a.last_used_at, a.source_url) for a in rows]
 
 
 # --- CategoryRepo -----------------------------------------------------------
 
 class CategoryRepo:
-    def __init__(self, session: Session) -> None:
-        self.session = session
+    def __init__(self, db: Database) -> None:
+        self.db = db
+        self.col = db["categories"]
 
-    def get_or_create(self, name: str) -> Category:
-        existing = self.session.execute(
-            select(Category).where(Category.name == name)
-        ).scalar_one_or_none()
+    def create(self, name: str) -> CategoryRecord:
+        existing = self.col.find_one({"name": name})
         if existing is not None:
-            return existing
-        cat = Category(name=name)
-        self.session.add(cat)
-        self.session.flush()
-        return cat
+            raise DatabaseIntegrityError(f"category with name {name!r} already exists")
+        doc = {
+            "name": name,
+            "usage_count": 0,
+            "last_used_at": None,
+            "created_at": _utcnow(),
+        }
+        res = self.col.insert_one(doc)
+        return _category_from_doc({**doc, "_id": res.inserted_id})
 
-    def list_all(self) -> list[Category]:
-        return list(self.session.execute(select(Category).order_by(Category.id)).scalars())
+    def get_or_create(self, name: str) -> CategoryRecord:
+        existing = self.col.find_one({"name": name})
+        if existing is not None:
+            return _category_from_doc(existing)
+        return self.create(name)
 
-    def mark_used(self, category_id: int) -> None:
-        cat = self.session.get(Category, category_id)
-        if cat is None:
+    def get(self, category_id: str) -> CategoryRecord | None:
+        doc = self.col.find_one({"_id": _oid(category_id)})
+        return _category_from_doc(doc) if doc else None
+
+    def list_all(self) -> list[CategoryRecord]:
+        return [_category_from_doc(d) for d in self.col.find().sort("_id", 1)]
+
+    def mark_used(self, category_id: str) -> None:
+        res = self.col.update_one(
+            {"_id": _oid(category_id)},
+            {"$inc": {"usage_count": 1}, "$set": {"last_used_at": _utcnow()}},
+        )
+        if res.matched_count == 0:
             raise DatabaseIntegrityError(f"Category id={category_id} not found")
-        cat.usage_count += 1
-        cat.last_used_at = _utcnow()
-        self.session.flush()
+
+    def delete(self, category_id: str) -> bool:
+        res = self.col.delete_one({"_id": _oid(category_id)})
+        return res.deleted_count > 0
+
+    def count_videos(self, category_id: str) -> int:
+        return self.db["videos"].count_documents({"category_id": _oid(category_id)})
 
 
 # --- VideoRepo --------------------------------------------------------------
 
 class VideoRepo:
-    def __init__(self, session: Session) -> None:
-        self.session = session
-
-    def get_or_create(self, category_id: int, filename: str, duration_seconds: float) -> Video:
-        existing = self.session.execute(
-            select(Video).where(
-                Video.category_id == category_id,
-                Video.filename == filename,
-            )
-        ).scalar_one_or_none()
-        if existing is not None:
-            if existing.duration_seconds != duration_seconds:
-                existing.duration_seconds = duration_seconds
-                self.session.flush()
-            return existing
-        v = Video(
-            category_id=category_id,
-            filename=filename,
-            duration_seconds=duration_seconds,
-        )
-        self.session.add(v)
-        self.session.flush()
-        return v
-
-    def list_for_category(self, category_id: int) -> list[Video]:
-        return list(
-            self.session.execute(
-                select(Video).where(Video.category_id == category_id).order_by(Video.id)
-            ).scalars()
-        )
-
-    def mark_used(self, video_id: int) -> None:
-        v = self.session.get(Video, video_id)
-        if v is None:
-            raise DatabaseIntegrityError(f"Video id={video_id} not found")
-        v.usage_count += 1
-        v.last_used_at = _utcnow()
-        self.session.flush()
-
-    def mark_used_many(self, video_ids: Iterable[int]) -> None:
-        for vid in video_ids:
-            self.mark_used(vid)
-
-
-# --- JobRepo ----------------------------------------------------------------
-
-class JobRepo:
-    def __init__(self, session: Session) -> None:
-        self.session = session
+    def __init__(self, db: Database) -> None:
+        self.db = db
+        self.col = db["videos"]
 
     def create(
         self,
-        audio_id: int,
+        category_id: str,
+        name: str,
+        source_url: str,
+        duration_seconds: float = 0.0,
+    ) -> VideoRecord:
+        existing = self.col.find_one({
+            "category_id": _oid(category_id),
+            "name": name,
+        })
+        if existing is not None:
+            raise DatabaseIntegrityError(
+                f"video with name {name!r} already exists in category {category_id}"
+            )
+        doc = {
+            "category_id": _oid(category_id),
+            "name": name,
+            "source_url": source_url,
+            "duration_seconds": float(duration_seconds),
+            "usage_count": 0,
+            "last_used_at": None,
+            "created_at": _utcnow(),
+        }
+        res = self.col.insert_one(doc)
+        return _video_from_doc({**doc, "_id": res.inserted_id})
+
+    def get_or_create(
+        self,
+        category_id: str,
+        name: str,
+        source_url: str,
+        duration_seconds: float = 0.0,
+    ) -> VideoRecord:
+        existing = self.col.find_one({
+            "category_id": _oid(category_id),
+            "name": name,
+        })
+        if existing is not None:
+            updates: dict[str, Any] = {}
+            if existing.get("source_url") != source_url:
+                updates["source_url"] = source_url
+            if float(existing.get("duration_seconds") or 0) != float(duration_seconds):
+                updates["duration_seconds"] = float(duration_seconds)
+            if updates:
+                self.col.update_one({"_id": existing["_id"]}, {"$set": updates})
+                existing.update(updates)
+            return _video_from_doc(existing)
+        return self.create(category_id, name, source_url, duration_seconds)
+
+    def get(self, video_id: str) -> VideoRecord | None:
+        doc = self.col.find_one({"_id": _oid(video_id)})
+        return _video_from_doc(doc) if doc else None
+
+    def list_for_category(self, category_id: str) -> list[VideoRecord]:
+        return [
+            _video_from_doc(d)
+            for d in self.col.find({"category_id": _oid(category_id)}).sort("_id", 1)
+        ]
+
+    def mark_used(self, video_id: str) -> None:
+        res = self.col.update_one(
+            {"_id": _oid(video_id)},
+            {"$inc": {"usage_count": 1}, "$set": {"last_used_at": _utcnow()}},
+        )
+        if res.matched_count == 0:
+            raise DatabaseIntegrityError(f"Video id={video_id} not found")
+
+    def mark_used_many(self, video_ids: Iterable[str]) -> None:
+        for vid in video_ids:
+            self.mark_used(vid)
+
+    def update_duration(self, video_id: str, duration_seconds: float) -> None:
+        self.col.update_one(
+            {"_id": _oid(video_id)},
+            {"$set": {"duration_seconds": float(duration_seconds)}},
+        )
+
+    def delete(self, video_id: str) -> bool:
+        res = self.col.delete_one({"_id": _oid(video_id)})
+        return res.deleted_count > 0
+
+    def reassign_category(self, video_id: str, new_category_id: str) -> bool:
+        res = self.col.update_one(
+            {"_id": _oid(video_id)},
+            {"$set": {"category_id": _oid(new_category_id)}},
+        )
+        return res.matched_count > 0
+
+    def delete_for_category(self, category_id: str) -> int:
+        res = self.col.delete_many({"category_id": _oid(category_id)})
+        return res.deleted_count
+
+
+# --- ExecutionRepo (replaces JobRepo) ---------------------------------------
+
+class ExecutionRepo:
+    """Owns the ``executions`` collection (one document per generated clip).
+
+    Replaces the old ``JobRepo`` against ``generation_jobs``. The rename is
+    intentional: 'execution' is clearer for the webapp UI and reflects that
+    a record may track not just the FFmpeg job but also Cloudinary upload
+    state and the GitHub Actions run that produced it.
+    """
+
+    PENDING = "pending"
+    SUCCESS = "success"
+    FAILED = "failed"
+
+    def __init__(self, db: Database) -> None:
+        self.db = db
+        self.col = db["executions"]
+
+    def create(
+        self,
+        audio_id: str,
+        slice_index: int,
         clip_start: float,
         clip_end: float,
-        status: str = GenerationJob.PENDING,
-    ) -> GenerationJob:
-        job = GenerationJob(
-            audio_id=audio_id,
-            clip_start=clip_start,
-            clip_end=clip_end,
-            status=status,
+        clip_duration: float,
+        github_run_id: str = "",
+        status: str = PENDING,
+    ) -> dict[str, Any]:
+        """Insert a new execution document and return it as a dict.
+
+        Returns the full document (including the stringified ``_id``) so
+        the orchestrator can immediately use the id for Cloudinary upload
+        and subsequent status updates.
+        """
+        doc = {
+            "audio_id": _oid(audio_id),
+            "status": status,
+            "error_message": None,
+            "slice": {
+                "index": int(slice_index),
+                "start_seconds": float(clip_start),
+                "end_seconds": float(clip_end),
+                "duration_seconds": float(clip_duration),
+            },
+            "selected_category_id": None,
+            "selected_video_ids": [],
+            "output": None,
+            "github_run_id": github_run_id or "",
+            "created_at": _utcnow(),
+            "completed_at": None,
+        }
+        res = self.col.insert_one(doc)
+        out = {**doc, "_id": res.inserted_id}
+        return out
+
+    def mark_selection(
+        self,
+        execution_id: str,
+        category_id: str,
+        video_ids: list[str],
+    ) -> None:
+        """Record which category + videos were chosen for this execution."""
+        self.col.update_one(
+            {"_id": _oid(execution_id)},
+            {"$set": {
+                "selected_category_id": _oid(category_id),
+                "selected_video_ids": [_oid(v) for v in video_ids],
+            }},
         )
-        self.session.add(job)
-        self.session.flush()
-        return job
 
-    def mark_success(self, job_id: int, output_path: str) -> None:
-        job = self.session.get(GenerationJob, job_id)
-        if job is None:
-            raise DatabaseIntegrityError(f"Job id={job_id} not found")
-        job.status = GenerationJob.SUCCESS
-        job.output_path = output_path
-        job.completed_at = _utcnow()
-        self.session.flush()
+    def mark_success(
+        self,
+        execution_id: str,
+        cloudinary_url: str,
+        cloudinary_public_id: str,
+        duration_seconds: float,
+        width: int,
+        height: int,
+    ) -> None:
+        self.col.update_one(
+            {"_id": _oid(execution_id)},
+            {"$set": {
+                "status": self.SUCCESS,
+                "output": {
+                    "cloudinary_url": cloudinary_url,
+                    "cloudinary_public_id": cloudinary_public_id,
+                    "duration_seconds": float(duration_seconds),
+                    "width": int(width),
+                    "height": int(height),
+                },
+                "completed_at": _utcnow(),
+            }},
+        )
 
-    def mark_failed(self, job_id: int, error_message: str) -> None:
-        job = self.session.get(GenerationJob, job_id)
-        if job is None:
-            raise DatabaseIntegrityError(f"Job id={job_id} not found")
-        job.status = GenerationJob.FAILED
-        job.error_message = error_message[:4000]
-        job.completed_at = _utcnow()
-        self.session.flush()
+    def mark_failed(self, execution_id: str, error_message: str) -> None:
+        self.col.update_one(
+            {"_id": _oid(execution_id)},
+            {"$set": {
+                "status": self.FAILED,
+                "error_message": (error_message or "")[:4000],
+                "completed_at": _utcnow(),
+            }},
+        )
 
-    def recent_category_ids(self, k: int) -> list[int]:
-        """Return category_ids used by the last K *successful* jobs.
+    def get(self, execution_id: str) -> dict[str, Any] | None:
+        doc = self.col.find_one({"_id": _oid(execution_id)})
+        if doc is None:
+            return None
+        return _normalize_execution(doc)
+
+    def list_recent(self, limit: int = 20, status: str | None = None) -> list[dict[str, Any]]:
+        query: dict[str, Any] = {}
+        if status:
+            query["status"] = status
+        cur = self.col.find(query).sort("created_at", -1).limit(limit)
+        return [_normalize_execution(d) for d in cur]
+
+    def count_by_status(self) -> dict[str, int]:
+        out: dict[str, int] = {}
+        for d in self.col.find({}, {"status": 1}):
+            s = d.get("status", "pending")
+            out[s] = out.get(s, 0) + 1
+        return out
+
+    def recent_category_ids(self, k: int) -> list[str]:
+        """Return category_ids used by the K most-recently-used categories.
 
         Used by :class:`CategorySelector` to apply the cooldown window.
         Returns at most K entries (most-recent first).
         """
         if k <= 0:
             return []
-        # We didn't store category_id on jobs by design (a job may use many
-        # videos across categories). Instead we infer from the most recently
-        # used categories via their last_used_at timestamps.
-        cats = self.session.execute(
-            select(Category).where(Category.last_used_at.is_not(None))
-            .order_by(Category.last_used_at.desc()).limit(k)
-        ).scalars().all()
-        return [c.id for c in cats]
-
-    def list_recent(self, limit: int = 20) -> list[GenerationJob]:
-        return list(
-            self.session.execute(
-                select(GenerationJob).order_by(GenerationJob.id.desc()).limit(limit)
-            ).scalars()
-        )
-
-    def count_by_status(self) -> dict[str, int]:
-        jobs = self.session.execute(select(GenerationJob)).scalars().all()
-        out: dict[str, int] = {}
-        for j in jobs:
-            out[j.status] = out.get(j.status, 0) + 1
-        return out
+        # Cooldown is based on category.last_used_at, not on executions
+        # (mirrors the previous SQL behaviour: "categories used in the last
+        # K successful jobs" is approximated by "K most recently used
+        # categories" because we bump last_used_at only on success).
+        cur = self.db["categories"].find(
+            {"last_used_at": {"$ne": None}}
+        ).sort("last_used_at", -1).limit(k)
+        return [str(d["_id"]) for d in cur]
 
 
-__all__ = ["AudioRepo", "CategoryRepo", "VideoRepo", "JobRepo"]
+def _normalize_execution(d: dict[str, Any]) -> dict[str, Any]:
+    """Stringify all ObjectIds in an execution doc for external consumers."""
+    out = dict(d)
+    out["_id"] = str(d["_id"])
+    if d.get("audio_id"):
+        out["audio_id"] = str(d["audio_id"])
+    if d.get("selected_category_id"):
+        out["selected_category_id"] = str(d["selected_category_id"])
+    if d.get("selected_video_ids"):
+        out["selected_video_ids"] = [str(v) for v in d["selected_video_ids"]]
+    return out
+
+
+# --- Index management -------------------------------------------------------
+
+def ensure_indexes(db: Database) -> None:
+    """Create the indexes documented in section 3.3.
+
+    Idempotent – safe to call from ``init-db`` on every run. pymongo's
+    ``create_index`` is a no-op if the index already exists with the same
+    spec.
+    """
+    db["audios"].create_index("usage_count")
+    db["categories"].create_index("usage_count")
+    db["categories"].create_index("last_used_at")
+    db["videos"].create_index([("category_id", 1), ("usage_count", 1)])
+    db["executions"].create_index([("created_at", -1)])
+    db["executions"].create_index("status")
+    # Unique-name guards so duplicate registration fails fast.
+    db["audios"].create_index("name", unique=True)
+    db["categories"].create_index("name", unique=True)
+    db["videos"].create_index([("category_id", 1), ("name", 1)], unique=True)
+    log.info("mongo indexes ensured")
+
+
+# --- Compatibility alias ----------------------------------------------------
+# Older code may still import ``JobRepo``. Keep a thin alias so the symbol
+# doesn't disappear, but new code should use ``ExecutionRepo`` directly.
+JobRepo = ExecutionRepo
+
+
+__all__ = [
+    "AudioRepo",
+    "CategoryRepo",
+    "VideoRepo",
+    "ExecutionRepo",
+    "JobRepo",        # backwards-compat alias
+    "ensure_indexes",
+]

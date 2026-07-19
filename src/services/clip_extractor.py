@@ -42,7 +42,7 @@ class ClipExtractor:
 
         if audio.duration_seconds < clip_dur:
             raise InsufficientAudioDurationError(
-                f"audio {audio.filename!r} duration {audio.duration_seconds:.2f}s "
+                f"audio {audio.name!r} duration {audio.duration_seconds:.2f}s "
                 f"is shorter than clip_duration {clip_dur:.2f}s"
             )
 
@@ -51,14 +51,14 @@ class ClipExtractor:
         if n_clips <= 0:
             # Should be unreachable due to the check above, but keep defensive.
             raise InsufficientAudioDurationError(
-                f"audio {audio.filename!r} cannot fit even one clip "
+                f"audio {audio.name!r} cannot fit even one clip "
                 f"of {clip_dur:.2f}s"
             )
         if n_clips < max_clips:
             log.warning(
                 "audio %r can fit only %d non-overlapping clip(s) of %.2fs "
                 "(requested %d) – proceeding with %d",
-                audio.filename, n_clips, clip_dur, max_clips, n_clips,
+                audio.name, n_clips, clip_dur, max_clips, n_clips,
             )
 
         zone_size = audio.duration_seconds / n_clips

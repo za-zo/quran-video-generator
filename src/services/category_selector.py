@@ -6,7 +6,7 @@ import random
 from datetime import datetime
 
 from src.config.settings import SelectionConfig, Settings
-from src.database.repository import CategoryRepo, JobRepo
+from src.database.repository import CategoryRepo, ExecutionRepo
 from src.exceptions import NoAvailableCategoryError
 from src.models import CategoryRecord
 from src.services.base_selector import BaseSelector
@@ -30,27 +30,18 @@ class CategorySelector(BaseSelector[CategoryRecord]):
     def __init__(
         self,
         category_repo: CategoryRepo,
-        job_repo: JobRepo,
+        execution_repo: ExecutionRepo,
         settings: Settings,
         rng: random.Random | None = None,
         selection_cfg: SelectionConfig | None = None,
     ) -> None:
         super().__init__(rng=rng, selection_cfg=selection_cfg)
         self.category_repo = category_repo
-        self.job_repo = job_repo
+        self.execution_repo = execution_repo
         self.cooldown = settings.category_cooldown
 
     def _candidates(self) -> list[CategoryRecord]:
-        rows = self.category_repo.list_all()
-        return [
-            CategoryRecord(
-                id=c.id,
-                name=c.name,
-                usage_count=c.usage_count,
-                last_used_at=c.last_used_at,
-            )
-            for c in rows
-        ]
+        return self.category_repo.list_all()
 
     def _usage(self, candidate: CategoryRecord) -> int:
         return candidate.usage_count
@@ -65,7 +56,7 @@ class CategorySelector(BaseSelector[CategoryRecord]):
             raise NoAvailableCategoryError("no categories registered in DB")
 
         if self.cooldown > 0:
-            recent_ids = set(self.job_repo.recent_category_ids(self.cooldown))
+            recent_ids = set(self.execution_repo.recent_category_ids(self.cooldown))
             if recent_ids:
                 log.debug("cooldown excludes category ids: %s", recent_ids)
             filtered = [c for c in candidates if c.id not in recent_ids]

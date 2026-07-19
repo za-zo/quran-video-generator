@@ -3,7 +3,18 @@
 
 pydantic>=2.5.0
 pydantic-settings>=2.1.0
-SQLAlchemy>=2.0.0
 PyYAML>=6.0
 python-dotenv>=1.0.0
+
+# Cloud-native persistence (replaces SQLAlchemy/SQLite)
+pymongo>=4.6.0
+
+# Media download (streaming, with retries)
+requests>=2.31.0
+
+# Cloudinary upload (final MP4 delivery)
+cloudinary>=1.38.0
+
+# Testing
 pytest>=7.4.0
+mongomock>=4.1.0
