@@ -3,6 +3,13 @@
 These tests do NOT call real FFmpeg – they monkey-patch
 :mod:`src.utils.ffmpeg_utils` to capture the command lines that would be
 executed, then assert the correct flags / order are produced.
+
+The pipeline re-encodes at every stage (mute, concat, trim) instead of
+using ``-c copy``. Stream-copy was the root cause of frozen-frame and
+black-flash artifacts at concat boundaries because it preserves each
+source's original GOP/PTS layout and cuts only on keyframes. These tests
+lock in the re-encode + closed-GOP behaviour so a regression is caught
+immediately.
 """
 
 from __future__ import annotations
@@ -56,10 +63,20 @@ def _segments() -> list[VideoSegment]:
 
 
 # ---------------------------------------------------------------------------
-# Tests – mute
+# Tests – mute (re-encode, not -c copy)
 # ---------------------------------------------------------------------------
 
-def test_mute_command_uses_an_and_copy(monkeypatch, tmp_path):
+def test_mute_command_uses_reencode_with_closed_gop(monkeypatch, tmp_path):
+    """``mute`` must re-encode with normalisation + closed-GOP flags.
+
+    A ``-c:v copy`` here would preserve each source's original GOP and is
+    the root cause of concat-boundary artifacts. We assert:
+      * ``-an`` strips audio.
+      * ``-c:v libx264`` (not ``copy``) re-encodes.
+      * normalising ``-vf`` (scale + setsar + fps) is present.
+      * closed-GOP flags (``-g``, ``-keyint_min``, ``-sc_threshold 0``,
+        ``-flags +cgop``) are present.
+    """
     captured: list[list[str]] = []
     monkeypatch.setattr(ff, "_run_subprocess", lambda cmd, **kw: captured.append(cmd) or MagicMock(returncode=0, stdout="", stderr=""))
     settings = _settings()
@@ -71,16 +88,37 @@ def test_mute_command_uses_an_and_copy(monkeypatch, tmp_path):
     cmd = captured[0]
     assert cmd[0] == ff.FFMPEG_BIN
     assert "-an" in cmd
-    assert "-c:v" in cmd and cmd[cmd.index("-c:v") + 1] == "copy"
     assert "-y" in cmd
     assert str(src) in cmd
+    # Re-encode, not stream-copy.
+    assert "-c:v" in cmd and cmd[cmd.index("-c:v") + 1] == "libx264"
+    assert "-copy" not in cmd
+    # Normalising filter chain.
+    assert "-vf" in cmd
+    vf = cmd[cmd.index("-vf") + 1]
+    assert "scale=1080:1920" in vf
+    assert "setsar=1" in vf
+    assert "fps=30" in vf
+    # Pixel format.
+    assert "-pix_fmt" in cmd and cmd[cmd.index("-pix_fmt") + 1] == "yuv420p"
+    # Closed-GOP flags.
+    assert "-g" in cmd and cmd[cmd.index("-g") + 1] == "30"
+    assert "-keyint_min" in cmd and cmd[cmd.index("-keyint_min") + 1] == "30"
+    assert "-sc_threshold" in cmd and cmd[cmd.index("-sc_threshold") + 1] == "0"
+    assert "-flags" in cmd and cmd[cmd.index("-flags") + 1] == "+cgop"
 
 
 # ---------------------------------------------------------------------------
-# Tests – concat (demuxer first, re-encode fallback)
+# Tests – concat (demuxer first, filter_complex fallback; both re-encode)
 # ---------------------------------------------------------------------------
 
-def test_concat_tries_demuxer_first(monkeypatch, tmp_path):
+def test_concat_tries_demuxer_first_with_reencode(monkeypatch, tmp_path):
+    """Demuxer path must re-encode (NOT ``-c copy``) with closed GOP.
+
+    The previous ``-f concat -c copy`` recipe appended encoded packets
+    without rebuilding GOP or fixing PTS/DTS at the boundary, producing
+    frozen last frames and black flashes.
+    """
     captured: list[list[str]] = []
     monkeypatch.setattr(ff, "_run_subprocess", lambda cmd, **kw: captured.append(cmd) or MagicMock(returncode=0, stdout="", stderr=""))
     settings = _settings()
@@ -94,15 +132,28 @@ def test_concat_tries_demuxer_first(monkeypatch, tmp_path):
     cmd = captured[0]
     assert "-f" in cmd and cmd[cmd.index("-f") + 1] == "concat"
     assert "-safe" in cmd and cmd[cmd.index("-safe") + 1] == "0"
-    assert "-c" in cmd and cmd[cmd.index("-c") + 1] == "copy"
+    # Must re-encode, not stream-copy.
+    assert "-c:v" in cmd and cmd[cmd.index("-c:v") + 1] == "libx264"
+    assert "-c" not in cmd or cmd.index("-c:v") < cmd.index("-c") if "-c" in cmd else True
+    # Normalising filter chain.
+    assert "-vf" in cmd
+    vf = cmd[cmd.index("-vf") + 1]
+    assert "scale=1080:1920" in vf
+    assert "fps=30" in vf
+    # Closed-GOP flags.
+    assert "-g" in cmd and cmd[cmd.index("-g") + 1] == "30"
+    assert "-flags" in cmd and cmd[cmd.index("-flags") + 1] == "+cgop"
+    # No audio in concat intermediate.
+    assert "-an" in cmd
 
 
-def test_concat_falls_back_to_reencode_on_failure(monkeypatch, tmp_path):
+def test_concat_falls_back_to_filter_complex_on_failure(monkeypatch, tmp_path):
+    """When demuxer fails, fallback uses ``filter_complex`` + scale + concat."""
     calls: list[list[str]] = []
 
     def fake_run(cmd, **kw):
         calls.append(cmd)
-        # First call (demuxer) fails, second call (re-encode) succeeds.
+        # First call (demuxer) fails, second call (filter_complex) succeeds.
         if len(calls) == 1:
             raise FFmpegExecutionError("demuxer failed", cmd=cmd, stderr="Invalid data found")
         return MagicMock(returncode=0, stdout="", stderr="")
@@ -122,13 +173,22 @@ def test_concat_falls_back_to_reencode_on_failure(monkeypatch, tmp_path):
     assert "scale=1080:1920" in fc
     assert "concat=n=2" in fc
     assert "fps=30" in fc
+    # Re-encode with closed GOP in fallback too.
+    assert "-c:v" in calls[1] and calls[1][calls[1].index("-c:v") + 1] == "libx264"
+    assert "-g" in calls[1] and calls[1][calls[1].index("-g") + 1] == "30"
+    assert "-flags" in calls[1] and calls[1][calls[1].index("-flags") + 1] == "+cgop"
 
 
 # ---------------------------------------------------------------------------
-# Tests – trim
+# Tests – trim (re-encode, not -c copy)
 # ---------------------------------------------------------------------------
 
-def test_trim_command(monkeypatch, tmp_path):
+def test_trim_command_uses_reencode_for_frame_accuracy(monkeypatch, tmp_path):
+    """``trim`` must re-encode for frame-accurate cutting + fresh closed GOP.
+
+    ``-c copy -t`` can only cut on the nearest keyframe and inherits the
+    source's GOP layout, re-introducing concat-boundary artifacts.
+    """
     captured: list[list[str]] = []
     monkeypatch.setattr(ff, "_run_subprocess", lambda cmd, **kw: captured.append(cmd) or MagicMock(returncode=0, stdout="", stderr=""))
     settings = _settings()
@@ -139,7 +199,22 @@ def test_trim_command(monkeypatch, tmp_path):
     cmd = captured[0]
     assert "-t" in cmd
     assert cmd[cmd.index("-t") + 1] == "42.500"
-    assert "-c" in cmd and cmd[cmd.index("-c") + 1] == "copy"
+    # Re-encode, not stream-copy.
+    assert "-c:v" in cmd and cmd[cmd.index("-c:v") + 1] == "libx264"
+    assert "-copy" not in cmd
+    # Normalising filter chain.
+    assert "-vf" in cmd
+    vf = cmd[cmd.index("-vf") + 1]
+    assert "scale=1080:1920" in vf
+    assert "fps=30" in vf
+    # Closed-GOP flags so the trimmed output starts on a clean keyframe.
+    assert "-g" in cmd and cmd[cmd.index("-g") + 1] == "30"
+    assert "-flags" in cmd and cmd[cmd.index("-flags") + 1] == "+cgop"
+    # PTS reset so the trimmed clip starts at zero.
+    assert "-avoid_negative_ts" in cmd
+    assert cmd[cmd.index("-avoid_negative_ts") + 1] == "make_zero"
+    # No audio in trim intermediate (video is already muted upstream).
+    assert "-an" in cmd
 
 
 # ---------------------------------------------------------------------------

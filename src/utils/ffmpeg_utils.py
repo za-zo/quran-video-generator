@@ -11,6 +11,20 @@ Goals
 
 This module deliberately stays free of any application logic – it is purely a
 controlled wrapper over the FFmpeg binary.
+
+IMPORTANT – pipeline encoding policy
+------------------------------------
+Every operation that *combines* or *cuts* video frames (mute, concat, trim)
+RE-ENCODES the video stream with a normalised, closed-GOP layout instead of
+using ``-c copy``. Stream-copy at concat/trim boundaries breaks GOP and
+PTS/DTS continuity, which manifests as frozen last frames and black flashes
+at junctions between clips. Re-encoding guarantees:
+
+* uniform resolution / fps / SAR / pix_fmt across all inputs,
+* a fixed closed GOP (``-g <fps> -keyint_min <fps> -sc_threshold 0
+  -flags +cgop``) so each clip begins on a clean, self-contained keyframe,
+* continuous PTS/DTS across concatenated segments,
+* frame-accurate trimming (no keyframe snapping).
 """
 
 from __future__ import annotations
@@ -269,17 +283,67 @@ def validate_media(path: str | os.PathLike, *, expect_audio: bool = False,
 
 # --- ffmpeg operations ------------------------------------------------------
 
-def mute_video(src: str | os.PathLike, dst: str | os.PathLike) -> Path:
+def _normalise_vf(width: int, height: int, fps: int) -> str:
+    """Filter chain that normalises any input to the target format.
+
+    * ``scale`` to the exact WxH (no aspect-ratio preservation – we want
+      uniform output).
+    * ``setsar=1`` so sample aspect ratio does not introduce pillarboxing.
+    * ``fps`` filter enforces constant frame rate on the decoded frames
+      before they reach the encoder.
+    """
+    return (
+        f"scale={width}:{height}:force_original_aspect_ratio=disable,"
+        f"setsar=1,fps={fps}"
+    )
+
+
+def _gop_flags(fps: int) -> list[str]:
+    """Encoder flags producing a fixed, closed GOP starting at a keyframe.
+
+    * ``-g <fps>``            : GOP size = 1 second of video.
+    * ``-keyint_min <fps>``   : minimum keyframe interval matches GOP size.
+    * ``-sc_threshold 0``     : disable scene-detection keyframes (fixed GOP).
+    * ``-flags +cgop``        : close every GOP so it is self-contained
+      (no forward references into the next GOP) – essential for clean
+      concat boundaries and frame-accurate trimming.
+    """
+    return [
+        "-g", str(fps),
+        "-keyint_min", str(fps),
+        "-sc_threshold", "0",
+        "-flags", "+cgop",
+    ]
+
+
+def mute_video(
+    src: str | os.PathLike,
+    dst: str | os.PathLike,
+    *,
+    width: int,
+    height: int,
+    fps: int,
+    video_codec: str,
+) -> Path:
     """Strip the audio track from ``src`` and write to ``dst``.
 
-    Uses ``-c copy -an`` when possible (no re-encode) – fast and lossless.
+    Re-encodes the video stream (instead of ``-c:v copy``) so the output has
+    a uniform resolution / fps / SAR / pix_fmt and a closed, fixed GOP. This
+    is mandatory: stream-copy preserves each source's original GOP and PTS
+    layout, which later breaks ``concat`` at the boundary (frozen last
+    frame / black flash).
     """
     src_path = Path(src)
     dst_path = Path(dst)
     dst_path.parent.mkdir(parents=True, exist_ok=True)
     cmd = [
         FFMPEG_BIN, "-y", "-i", str(src_path),
-        "-an", "-c:v", "copy",
+        "-an",
+        "-vf", _normalise_vf(width, height, fps),
+        "-c:v", video_codec,
+        "-r", str(fps),
+        "-pix_fmt", "yuv420p",
+        *_gop_flags(fps),
         str(dst_path),
     ]
     _run_subprocess(cmd)
@@ -289,8 +353,19 @@ def mute_video(src: str | os.PathLike, dst: str | os.PathLike) -> Path:
 def concat_demuxer(
     clips: Iterable[str | os.PathLike],
     dst: str | os.PathLike,
+    *,
+    width: int,
+    height: int,
+    fps: int,
+    video_codec: str,
 ) -> Path:
     """Concatenate media files using the FFmpeg concat demuxer.
+
+    Unlike the classic ``-f concat -c copy`` recipe (which merely appends
+    encoded packets and produces broken PTS/DTS at boundaries), this variant
+    feeds the demuxer output into a re-encoder with the standard normalising
+    filter chain + closed-GOP flags. The result is a single seamlessly
+    decodable stream with continuous timestamps.
 
     All inputs MUST share the same codec/resolution/fps. Use
     :func:`concat_with_reencode` when they don't.
@@ -313,7 +388,12 @@ def concat_demuxer(
         FFMPEG_BIN, "-y",
         "-f", "concat", "-safe", "0",
         "-i", str(listfile),
-        "-c", "copy",
+        "-vf", _normalise_vf(width, height, fps),
+        "-c:v", video_codec,
+        "-r", str(fps),
+        "-pix_fmt", "yuv420p",
+        *_gop_flags(fps),
+        "-an",
         str(dst_path),
     ]
     try:
@@ -336,7 +416,8 @@ def concat_with_reencode(
     """Concatenate clips that may differ in codec/resolution/fps.
 
     Each input is normalised via scale+fps filter then concatenated using the
-    ``concat`` filter. This is the safe fallback when the demuxer path fails.
+    ``concat`` filter, and the result is re-encoded with a closed fixed GOP.
+    This is the safe fallback when the demuxer path fails.
     """
     clips_list = list(clips)
     if not clips_list:
@@ -367,6 +448,7 @@ def concat_with_reencode(
         "-c:v", video_codec,
         "-r", str(fps),
         "-pix_fmt", "yuv420p",
+        *_gop_flags(fps),
         "-an",
         str(dst_path),
     ]
@@ -374,10 +456,30 @@ def concat_with_reencode(
     return dst_path
 
 
-def trim_video(src: str | os.PathLike, dst: str | os.PathLike, *, duration: float) -> Path:
+def trim_video(
+    src: str | os.PathLike,
+    dst: str | os.PathLike,
+    *,
+    duration: float,
+    width: int,
+    height: int,
+    fps: int,
+    video_codec: str,
+) -> Path:
     """Trim ``src`` to ``duration`` seconds (from the start).
 
-    Uses ``-c copy -t`` when possible for speed.
+    Re-encodes (instead of ``-c copy -t``) for two reasons:
+
+    1. Stream-copy trims can only cut on the nearest keyframe, so the
+       resulting duration is approximate and the last partial GOP is dropped
+       or kept arbitrarily.
+    2. A stream-copy trim inherits the source's GOP and PTS layout, which
+       re-introduces the same concat-boundary artifacts we just fixed
+       upstream.
+
+    Re-encoding with output-seek (``-t`` placed after ``-i``) gives a
+    frame-accurate cut and emits a fresh, closed-GOP stream whose first
+    frame is a clean keyframe.
     """
     src_path = Path(src)
     dst_path = Path(dst)
@@ -385,7 +487,12 @@ def trim_video(src: str | os.PathLike, dst: str | os.PathLike, *, duration: floa
     cmd = [
         FFMPEG_BIN, "-y", "-i", str(src_path),
         "-t", f"{duration:.3f}",
-        "-c", "copy",
+        "-vf", _normalise_vf(width, height, fps),
+        "-c:v", video_codec,
+        "-r", str(fps),
+        "-pix_fmt", "yuv420p",
+        *_gop_flags(fps),
+        "-an",
         "-avoid_negative_ts", "make_zero",
         str(dst_path),
     ]

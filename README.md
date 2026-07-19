@@ -17,7 +17,8 @@ AI services — everything runs on your own machine.
 - **Category cooldown** to avoid the same scenery appearing in back-to-back
   outputs.
 - **Mute → concat → trim → merge** FFmpeg pipeline that strips all original
-  video audio and uses `-c copy` wherever possible for speed.
+  video audio and re-encodes every stage with a normalised, closed-GOP
+  layout for seamless concat boundaries (no frozen frames / black flashes).
 - **Resilient batch mode** — a single clip failure never crashes the run.
 - **Fully configurable** via `config.yaml` and/or `.env`; nothing is
   hardcoded.
@@ -244,8 +245,9 @@ Unit tests cover:
 - **`test_clip_extractor.py`** — non-overlap property, bounds, indices,
   reproducibility with seed, error on too-short audio.
 - **`test_video_processor.py`** — FFmpeg command construction (mocked
-  subprocess) verifies `-an -c:v copy`, concat demuxer + re-encode fallback,
-  trim/extract/merge flags.
+  subprocess) verifies re-encode + closed-GOP flags at every stage
+  (mute, concat demuxer, concat filter_complex fallback, trim), plus
+  extract/merge flags.
 
 ---
 

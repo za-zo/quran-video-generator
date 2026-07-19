@@ -1,9 +1,12 @@
 """FFmpeg-backed video processor.
 
 Owns every FFmpeg operation required by the pipeline:
-  * Mute background videos (``-an -c:v copy``).
-  * Concatenate muted videos (demuxer-first, re-encode fallback).
-  * Trim the concatenated video to exactly the audio clip duration.
+  * Mute background videos (re-encoded to a normalised, closed-GOP layout
+    so subsequent concat is seamless).
+  * Concatenate muted videos (demuxer-first, filter-complex fallback –
+    both paths re-encode with a fixed closed GOP).
+  * Trim the concatenated video to exactly the audio clip duration
+    (re-encoded for frame-accurate cutting).
   * Extract the Quran audio clip from the source audio.
   * Merge the muted/trimmed video with the Quran audio clip and export.
 
@@ -41,26 +44,47 @@ class VideoProcessor:
     # --- Public pipeline primitives ----------------------------------------
 
     def mute(self, src: Path, dst_dir: Path) -> Path:
-        """Strip audio from ``src`` -> ``dst_dir / src.name`` (lossless copy)."""
+        """Strip audio from ``src`` -> ``dst_dir / muted_<name>``.
+
+        Re-encodes to the configured target resolution/fps/codec with a
+        closed fixed GOP. Stream-copy (``-c:v copy``) would preserve each
+        source's original GOP/PTS layout and break concat boundaries.
+        """
         dst = dst_dir / f"muted_{src.name}"
-        ff.mute_video(src, dst)
+        ff.mute_video(
+            src, dst,
+            width=self.settings.resolution_width,
+            height=self.settings.resolution_height,
+            fps=self.settings.fps,
+            video_codec=self.settings.video_codec,
+        )
         return dst
 
     def concat_clips(self, clips: list[Path], dst: Path) -> Path:
         """Concatenate ``clips`` into ``dst``.
 
-        First tries the fast ``-c copy`` demuxer path. If that fails (e.g.
-        mismatched codecs/resolutions), falls back to re-encoding with the
-        configured target resolution/fps.
+        First tries the concat demuxer (now re-encoding, not stream-copy).
+        If that fails (e.g. mismatched codecs the demuxer cannot decode),
+        falls back to the ``filter_complex`` concat path which normalises
+        every input via scale+fps+setsar before concatenating.
+
+        Both paths emit a closed, fixed-GOP stream so boundaries between
+        clips are seamless (no frozen last frame, no black flash).
         """
         if not clips:
             raise FFmpegExecutionError("concat_clips called with empty list")
 
         try:
-            return ff.concat_demuxer(clips, dst)
+            return ff.concat_demuxer(
+                clips, dst,
+                width=self.settings.resolution_width,
+                height=self.settings.resolution_height,
+                fps=self.settings.fps,
+                video_codec=self.settings.video_codec,
+            )
         except FFmpegExecutionError as exc:
             log.warning(
-                "concat demuxer failed (%s); falling back to re-encode path",
+                "concat demuxer failed (%s); falling back to filter_complex path",
                 exc.message,
             )
             # Clean partial output before retry.
@@ -75,12 +99,23 @@ class VideoProcessor:
             )
 
     def trim_to_duration(self, src: Path, dst: Path, duration: float) -> Path:
-        """Trim ``src`` to exactly ``duration`` seconds."""
+        """Trim ``src`` to exactly ``duration`` seconds (frame-accurate).
+
+        Re-encodes rather than using ``-c copy -t`` so the cut is
+        frame-accurate and the output starts on a clean keyframe with a
+        fresh closed GOP — preventing concat/merge artifacts downstream.
+        """
         if duration <= 0:
             raise FFmpegExecutionError(
                 f"trim_to_duration called with non-positive duration {duration!r}"
             )
-        return ff.trim_video(src, dst, duration=duration)
+        return ff.trim_video(
+            src, dst, duration=duration,
+            width=self.settings.resolution_width,
+            height=self.settings.resolution_height,
+            fps=self.settings.fps,
+            video_codec=self.settings.video_codec,
+        )
 
     def extract_audio_clip(self, audio: AudioRecord, clip: AudioClip, dst: Path) -> Path:
         """Slice the source audio file according to ``clip``."""
