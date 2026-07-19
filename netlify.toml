@@ -1,0 +1,31 @@
+# Netlify build configuration for the Quran Video Generator webapp.
+#
+# The Next.js app lives in /webapp (not at the repo root). This config
+# tells Netlify to:
+#   - install dependencies and run the build inside /webapp
+#   - publish the .next output directory
+#   - use Node 20 (LTS) for the build
+#
+# Environment variables that MUST be set in Netlify site settings
+# (Build & deploy → Environment):
+#   - MONGODB_URI           (required at runtime; not needed at build time)
+#   - MONGODB_DB_NAME       (optional; defaults to quran_video_generator)
+#   - GITHUB_REPO           (optional; owner/repo slug for Actions links)
+#
+# The webapp's mongo client is lazily initialised, so the build does NOT
+# need MONGODB_URI — pages are all marked `dynamic = "force-dynamic"`
+# and only connect to Mongo at request time.
+
+[build]
+  base = "webapp"
+  command = "npm run build"
+  publish = ".next"
+
+[build.environment]
+  NODE_VERSION = "20"
+  NPM_VERSION = "10"
+
+# Next.js runtime — the @netlify/plugin-nextjs plugin is auto-detected
+# when a Next.js app is published. This block is belt-and-braces.
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
