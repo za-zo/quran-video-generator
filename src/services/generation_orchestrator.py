@@ -4,13 +4,14 @@ Coordinates the full pipeline end-to-end:
 
     for each audio in batch:
         select audio (weighted least-used)
-        download the source audio to a per-clip temp dir
+        download the source audio to a per-audio temp dir
+        if duration is 0, probe it via ffprobe and update MongoDB
         extract N non-overlapping clips
         for each clip:
             create an execution document (status=pending)
             select category (weighted + cooldown)
             select videos until duration covered
-            download the selected videos to the same temp dir
+            download the selected videos to a per-clip temp dir
             build final MP4 via VideoProcessor
             upload the MP4 to Cloudinary
             on success: update usage counts, mark execution success
@@ -28,6 +29,7 @@ details.
 from __future__ import annotations
 
 import random
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 
@@ -49,6 +51,7 @@ from src.services.clip_extractor import ClipExtractor
 from src.services.video_processor import VideoProcessor
 from src.services.video_selector import VideoSelector
 from src.utils import media_downloader
+from src.utils import ffmpeg_utils as ff
 from src.utils.cloudinary_uploader import (
     CloudinaryUploadError,
     upload_video,
@@ -132,25 +135,53 @@ class GenerationOrchestrator:
 
     def _process_audio(self, audio: AudioRecord) -> list[GenerationJobResult]:
         results: list[GenerationJobResult] = []
-        try:
-            clips = self.clip_extractor.extract(audio)
-        except InsufficientAudioDurationError as exc:
-            log.warning("skipping audio id=%s: %s", audio.id, exc)
-            return results
-        except AppBaseException as exc:
-            log.error("clip extraction failed for audio id=%s: %s", audio.id, exc)
-            return results
+        
+        # We download the audio once per audio, rather than once per clip,
+        # to save bandwidth and time.
+        with temp_workdir(prefix=f"audio_{audio.id}_", base_dir=self.settings.temp_dir) as audio_tmp:
+            try:
+                audio_local = media_downloader.download_to_temp(
+                    audio.source_url, audio_tmp,
+                    expected_extension=".mp3",
+                    filename_hint=f"audio_{audio.id}",
+                    expect_audio=True,
+                )
 
-        # Each clip gets its own temp dir so a failure on clip N doesn't
-        # leave half-downloaded files for clip N+1.
-        for clip in clips:
-            result = self._process_clip(audio, clip)
-            results.append(result)
+                # If duration is unknown (0), probe it from the downloaded file and update DB.
+                if audio.duration_seconds <= 0:
+                    try:
+                        probe = ff.validate_media(audio_local, expect_audio=True)
+                        audio = replace(audio, duration_seconds=probe.duration_seconds)
+                        self.audio_repo.update_duration(audio.id, probe.duration_seconds)
+                        log.info("Audio id=%s probed duration=%.2fs", audio.id, probe.duration_seconds)
+                    except Exception as exc:
+                        log.error("failed to probe duration for audio id=%s: %s", audio.id, exc)
+                        return results
+
+                try:
+                    clips = self.clip_extractor.extract(audio)
+                except InsufficientAudioDurationError as exc:
+                    log.warning("skipping audio id=%s: %s", audio.id, exc)
+                    return results
+                except AppBaseException as exc:
+                    log.error("clip extraction failed for audio id=%s: %s", audio.id, exc)
+                    return results
+
+                # Each clip gets its own temp dir so a failure on clip N doesn't
+                # leave half-downloaded files for clip N+1.
+                for clip in clips:
+                    result = self._process_clip(audio, audio_local, clip)
+                    results.append(result)
+                    
+            except AppBaseException as exc:
+                log.error("audio processing failed for audio id=%s: %s", audio.id, exc)
+                return results
+                
         return results
 
     # --- Per-clip pipeline --------------------------------------------------
 
-    def _process_clip(self, audio: AudioRecord, clip: AudioClip) -> GenerationJobResult:
+    def _process_clip(self, audio: AudioRecord, audio_local_path: Path, clip: AudioClip) -> GenerationJobResult:
         # Create the execution document up front so even a failed download
         # leaves a traceable record.
         exec_doc = self.execution_repo.create(
@@ -198,15 +229,7 @@ class GenerationOrchestrator:
                 prefix=f"clip_{clip.audio_id}_{clip.index}_",
                 base_dir=self.settings.temp_dir,
             ) as tmp:
-                # 3a. Download the source audio (just the bytes we need).
-                audio_local = media_downloader.download_to_temp(
-                    audio.source_url, tmp,
-                    expected_extension=".mp3",
-                    filename_hint=f"audio_{audio.id}",
-                    expect_audio=True,
-                )
-
-                # 3b. Download each selected video.
+                # 3a. Download each selected video.
                 for seg in segments:
                     seg.local_path = media_downloader.download_to_temp(
                         seg.source_url, tmp,
@@ -215,16 +238,16 @@ class GenerationOrchestrator:
                         expect_video=True,
                     )
 
-                # 3c. Build the final MP4 locally.
+                # 3b. Build the final MP4 locally.
                 output_path = self._build_output_path(audio, clip, execution_id)
                 self.video_processor.build_clip(
-                    audio, audio_local, clip, segments, output_path,
+                    audio, audio_local_path, clip, segments, output_path,
                 )
 
-                # 3d. Upload to Cloudinary.
+                # 3c. Upload to Cloudinary.
                 upload = upload_video(output_path, execution_id, self.settings)
 
-                # 3e. Persist success + Cloudinary metadata.
+                # 3d. Persist success + Cloudinary metadata.
                 self.execution_repo.mark_success(
                     execution_id,
                     cloudinary_url=upload.secure_url,
@@ -242,11 +265,6 @@ class GenerationOrchestrator:
                     "clip generated: exec=%s audio=%s clip=%d -> %s",
                     execution_id, audio.id, clip.index, upload.secure_url,
                 )
-
-                # The local output file is inside temp_workdir scope and
-                # will be cleaned up on context exit. We let that happen
-                # automatically rather than deleting prematurely, in case
-                # a future enhancement wants to do post-upload verification.
 
             # 4. Persist usage updates (only after success).
             self._mark_used(audio.id, category.id, result.selected_video_ids)
