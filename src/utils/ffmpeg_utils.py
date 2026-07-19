@@ -574,6 +574,67 @@ def merge_audio_video(
     return dst_path
 
 
+def build_clip_one_pass(
+    video_paths: list[Path],
+    audio_path: Path,
+    dst: Path,
+    *,
+    audio_start: float,
+    duration: float,
+    width: int,
+    height: int,
+    fps: int,
+    video_codec: str,
+    video_preset: str,
+    audio_codec: str,
+) -> Path:
+    """Build the final clip in a single FFmpeg pass.
+
+    This avoids re-encoding the same video 4 times (mute -> concat -> trim -> merge).
+    We scale/normalize all input videos, concat them, trim to the target duration,
+    and merge with the extracted audio slice all in one filter_complex graph.
+    """
+    dst_path = Path(dst)
+    dst_path.parent.mkdir(parents=True, exist_ok=True)
+
+    cmd: list[str] = [FFMPEG_BIN, "-y"]
+    for v in video_paths:
+        cmd.extend(["-i", str(Path(v).resolve())])
+    
+    # Audio input with seeking
+    cmd.extend(["-ss", f"{audio_start:.3f}", "-t", f"{duration:.3f}", "-i", str(Path(audio_path).resolve())])
+
+    # Build filter complex
+    filter_parts = []
+    concat_inputs = []
+    for i in range(len(video_paths)):
+        filter_parts.append(
+            f"[{i}:v]scale={width}:{height}:force_original_aspect_ratio=disable,setsar=1,fps={fps}[v{i}]"
+        )
+        concat_inputs.append(f"[v{i}]")
+    
+    filter_parts.append(f"{''.join(concat_inputs)}concat=n={len(video_paths)}:v=1:a=0[catv]")
+    filter_parts.append(f"[catv]trim=duration={duration},setpts=PTS-STARTPTS[outv]")
+    filter_complex = ";".join(filter_parts)
+
+    audio_idx = len(video_paths)
+    cmd.extend([
+        "-filter_complex", filter_complex,
+        "-map", "[outv]",
+        "-map", f"{audio_idx}:a",
+        "-c:v", video_codec,
+        "-preset", video_preset,
+        "-r", str(fps),
+        "-pix_fmt", "yuv420p",
+        *_gop_flags(fps),
+        "-c:a", audio_codec,
+        "-shortest",
+        str(dst_path),
+    ])
+    _run_subprocess(cmd)
+    return dst_path
+
+
 __all__ = [
     "FFMPEG_BIN",
     "FFPROBE_BIN",
@@ -586,4 +647,5 @@ __all__ = [
     "trim_video",
     "extract_audio_clip",
     "merge_audio_video",
+    "build_clip_one_pass",
 ]

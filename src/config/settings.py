@@ -82,6 +82,7 @@ class Settings(BaseSettings):
     resolution: str = Field(default="1080x1920")
     fps: int = Field(default=30, gt=0)
     video_codec: str = Field(default="libx264")
+    video_preset: str = Field(default="veryfast") # Ajout du preset très rapide
     audio_codec: str = Field(default="aac")
 
     # Paths (local-only: temp working dir for FFmpeg intermediates,

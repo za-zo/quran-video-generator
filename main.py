@@ -145,6 +145,7 @@ def cmd_generate(args: argparse.Namespace, settings: Settings) -> int:
     # --- Graceful shutdown handler ---
     # If GitHub Actions cancels the job or a user presses Ctrl+C, we catch
     # the signal and mark any pending executions for this run as 'canceled'.
+    # This targets ONLY the current run, so concurrent workflows are safe.
     def handle_interrupt(signum, frame):
         sig_name = signal.Signals(signum).name
         log.warning("Received %s. Marking pending executions as canceled...", sig_name)
