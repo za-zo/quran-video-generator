@@ -52,7 +52,7 @@ export default async function CategoryVideosPage({
             Edit category
           </Link>
         }
-        meta="Background videos for this scenery category. The pipeline picks from these when this category is selected."
+        meta="Background videos for this scenery category. The pipeline picks from these when this category is selected. Click a row to edit or delete."
       />
 
       <div className="px-8 py-10 space-y-12">
@@ -70,20 +70,22 @@ export default async function CategoryVideosPage({
             <div>
               <div className="grid grid-cols-12 gap-4 px-2 py-3 hairline-b">
                 <div className="col-span-1 eyebrow">#</div>
-                <div className="col-span-3 eyebrow">NAME</div>
+                <div className="col-span-4 eyebrow">NAME</div>
                 <div className="col-span-4 eyebrow">SOURCE URL</div>
                 <div className="col-span-2 eyebrow">DURATION</div>
                 <div className="col-span-1 eyebrow text-right">USES</div>
-                <div className="col-span-1 eyebrow text-right">ACTIONS</div>
               </div>
               <ul>
                 {data.videos.map((v: any, i: number) => (
                   <li key={v._id} className="hairline-b-soft last:border-b-0">
-                    <div className="grid grid-cols-12 gap-4 px-2 py-4 items-center">
+                    <Link
+                      href={`/categories/${data.category._id}/videos/${v._id}/edit`}
+                      className="grid grid-cols-12 gap-4 px-2 py-4 items-center hover:bg-paperRaised/50 transition-colors"
+                    >
                       <div className="col-span-1 num text-2xs text-mute">
                         {String(i + 1).padStart(3, "0")}
                       </div>
-                      <div className="col-span-3 truncate text-sm font-medium text-ink">
+                      <div className="col-span-4 truncate text-sm font-medium text-ink">
                         {v.name}
                       </div>
                       <div className="col-span-4 truncate text-xs text-mute font-mono">
@@ -95,15 +97,7 @@ export default async function CategoryVideosPage({
                       <div className="col-span-1 num text-sm text-right text-inkSoft">
                         {v.usage_count}
                       </div>
-                      <div className="col-span-1 text-right">
-                        <Link
-                          href={`/categories/${data.category._id}/videos?edit=${v._id}`}
-                          className="text-2xs text-mute hover:text-accent transition-colors uppercase tracking-wide-2 font-mono"
-                        >
-                          edit
-                        </Link>
-                      </div>
-                    </div>
+                    </Link>
                   </li>
                 ))}
               </ul>
