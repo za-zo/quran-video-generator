@@ -2,31 +2,44 @@
 
 import type { ExecutionSliceStatus } from "@/lib/types";
 
-const STATUS_STYLES: Record<string, { label: string; cls: string }> = {
+const STATUS_STYLES: Record<string, { label: string; dot: string; text: string }> = {
   pending: {
     label: "PENDING",
-    cls: "text-warn border-warn/40 bg-warn/5",
+    dot: "bg-warn",
+    text: "text-warn",
   },
   success: {
     label: "SUCCESS",
-    cls: "text-success border-success/40 bg-success/5",
+    dot: "bg-success",
+    text: "text-success",
   },
   failed: {
     label: "FAILED",
-    cls: "text-failed border-failed/40 bg-failed/5",
+    dot: "bg-failed",
+    text: "text-failed",
   },
   canceled: {
     label: "CANCELED",
-    cls: "text-mute border-rule/40 bg-rule/5",
+    dot: "bg-mute",
+    text: "text-mute",
+  },
+  running: {
+    label: "RUNNING",
+    dot: "bg-accent",
+    text: "text-accent",
+  },
+  partial: {
+    label: "PARTIAL",
+    dot: "bg-warn",
+    text: "text-warn",
   },
 };
 
 export function StatusBadge({ status }: { status: string }) {
   const s = STATUS_STYLES[status] ?? STATUS_STYLES.pending;
   return (
-    <span
-      className={`inline-flex items-center px-2 py-0.5 border font-mono text-2xs uppercase tracking-wide-2 ${s.cls}`}
-    >
+    <span className={`inline-flex items-center gap-1.5 font-mono text-2xs uppercase tracking-wide-2 ${s.text}`}>
+      <span className={`inline-block w-1.5 h-1.5 rounded-full ${s.dot}`} aria-hidden />
       {s.label}
     </span>
   );

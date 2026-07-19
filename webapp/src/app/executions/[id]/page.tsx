@@ -126,38 +126,38 @@ export default async function ExecutionDetailPage({
         }
       />
 
-      <div className="px-8 py-8 space-y-8">
+      <div className="px-8 py-10 space-y-12">
         {/* Summary stats */}
-        <section className="grid grid-cols-2 md:grid-cols-4 gap-6">
-          <div>
-            <div className="eyebrow mb-1">TOTAL SLICES</div>
-            <div className="num text-xl">{(run as any).total_slices ?? "—"}</div>
+        <section className="grid grid-cols-2 md:grid-cols-4 gap-8">
+          <div className="hairline-t pt-4">
+            <div className="eyebrow mb-2">TOTAL SLICES</div>
+            <div className="num text-2xl text-ink">{(run as any).total_slices ?? "—"}</div>
           </div>
-          <div>
-            <div className="eyebrow mb-1">SUCCESS</div>
-            <div className="num text-xl text-success">{(run as any).success_count ?? 0}</div>
+          <div className="hairline-t pt-4">
+            <div className="eyebrow mb-2">SUCCESS</div>
+            <div className="num text-2xl text-success">{(run as any).success_count ?? 0}</div>
           </div>
-          <div>
-            <div className="eyebrow mb-1">FAILED</div>
-            <div className="num text-xl text-failed">{(run as any).failed_count ?? 0}</div>
+          <div className="hairline-t pt-4">
+            <div className="eyebrow mb-2">FAILED</div>
+            <div className="num text-2xl text-failed">{(run as any).failed_count ?? 0}</div>
           </div>
-          <div>
-            <div className="eyebrow mb-1">CREATED</div>
-            <div className="num text-sm">{formatRelative((run as any).created_at)}</div>
+          <div className="hairline-t pt-4">
+            <div className="eyebrow mb-2">CREATED</div>
+            <div className="num text-sm text-inkSoft">{formatRelative((run as any).created_at)}</div>
           </div>
         </section>
 
         {/* Slices list */}
         <section>
-          <div className="eyebrow mb-4 hairline-b pb-2">
+          <div className="eyebrow mb-4 hairline-b pb-3">
             SLICES ({(run as any).total_slices ?? 0})
           </div>
           {slices.length === 0 ? (
             <p className="text-mute italic text-sm">No slices found for this run.</p>
           ) : (
             <>
-              <div className="hairline-all">
-                <div className="grid grid-cols-12 gap-4 px-4 py-2 hairline-b bg-rule/[0.03]">
+              <div>
+                <div className="grid grid-cols-12 gap-4 px-2 py-3 hairline-b">
                   <div className="col-span-1 eyebrow">#</div>
                   <div className="col-span-1 eyebrow">STATUS</div>
                   <div className="col-span-3 eyebrow">AUDIO</div>
@@ -168,10 +168,10 @@ export default async function ExecutionDetailPage({
                 </div>
                 <ul>
                   {slices.map((slice: any, i: number) => (
-                    <li key={slice._id} className="hairline-b last:border-b-0">
+                    <li key={slice._id} className="hairline-b-soft last:border-b-0">
                       <Link
                         href={`/slices/${slice._id}`}
-                        className="grid grid-cols-12 gap-4 px-4 py-3 items-center hover:bg-rule/[0.03] transition-colors"
+                        className="grid grid-cols-12 gap-4 px-2 py-4 items-center hover:bg-paperRaised/50 transition-colors"
                       >
                         <div className="col-span-1 num text-2xs text-mute">
                           {String((page - 1) * PAGE_SIZE + i + 1).padStart(3, "0")}
@@ -179,7 +179,7 @@ export default async function ExecutionDetailPage({
                         <div className="col-span-1">
                           <StatusBadge status={slice.status} />
                         </div>
-                        <div className="col-span-3 truncate text-sm font-medium">
+                        <div className="col-span-3 truncate text-sm font-medium text-ink">
                           {slice._audio_name}
                         </div>
                         <div className="col-span-2 truncate text-sm text-mute">
@@ -190,12 +190,8 @@ export default async function ExecutionDetailPage({
                             ? `${formatDuration(slice.slice.start_seconds)} → ${formatDuration(slice.slice.end_seconds)}`
                             : "—"}
                         </div>
-                        <div className="col-span-2">
-                          {slice.slice && (
-                            <span className="num text-xs text-mute">
-                              {formatDuration(slice.slice.duration_seconds)}
-                            </span>
-                          )}
+                        <div className="col-span-2 num text-xs text-inkSoft">
+                          {slice.slice ? formatDuration(slice.slice.duration_seconds) : "—"}
                         </div>
                         <div className="col-span-1 num text-2xs text-mute text-right">
                           {formatRelative(slice.created_at)}

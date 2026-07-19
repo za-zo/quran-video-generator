@@ -44,10 +44,10 @@ export default function NewCategoryPage() {
         title="Add category"
         meta="Categories are scenery groupings (sea, forest, desert, …). Add videos to a category after creating it."
       />
-      <div className="px-8 py-8 max-w-2xl">
-        <form onSubmit={onSubmit} className="space-y-6">
+      <div className="px-8 py-10 max-w-2xl">
+        <form onSubmit={onSubmit} className="space-y-8">
           <div>
-            <label className="block eyebrow mb-2">
+            <label className="block eyebrow mb-3">
               Name<span className="text-accent ml-1">*</span>
             </label>
             <input
@@ -56,15 +56,15 @@ export default function NewCategoryPage() {
               onChange={(e) => setName(e.target.value)}
               required
               placeholder="e.g. sea, forest, mountains"
-              className="w-full hairline-all px-3 py-2 bg-paper font-mono text-sm focus:outline-none focus:border-ink"
+              className="field-input"
             />
-            <p className="mt-1 text-2xs text-mute">
+            <p className="mt-2 text-2xs text-mute">
               Lower-case, hyphen-separated names work best (e.g. &quot;sea&quot;, &quot;high-mountains&quot;).
             </p>
           </div>
 
           {error && (
-            <div className="hairline-all p-3 text-sm text-failed bg-failed/5">
+            <div className="text-sm text-failed">
               {error}
             </div>
           )}
@@ -73,14 +73,14 @@ export default function NewCategoryPage() {
             <button
               type="submit"
               disabled={submitting}
-              className="px-5 py-2 hairline-all bg-ink text-paper text-sm font-medium hover:bg-rule transition-colors disabled:opacity-50"
+              className="btn-primary"
             >
               {submitting ? "Saving…" : "Create category"}
             </button>
           </div>
         </form>
 
-        <div className="mt-4 text-sm">
+        <div className="mt-8 text-sm">
           <Link href="/categories" className="quiet-link">
             ← back to categories
           </Link>

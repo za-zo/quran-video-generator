@@ -3,7 +3,6 @@ import { getDb } from "@/lib/mongo";
 import { stringifyIds } from "@/lib/types";
 import { StatCard } from "@/components/StatCard";
 import { StatusBadge } from "@/components/StatusBadge";
-import { DurationBar } from "@/components/DurationBar";
 import { PageHeader } from "@/components/PageHeader";
 import {
   formatDuration,
@@ -109,13 +108,13 @@ export default async function DashboardPage() {
         meta="Operations console for the Quran Video Generator pipeline."
       />
 
-      <div className="px-8 py-8 space-y-12">
+      <div className="px-8 py-12 space-y-16">
         {/* Hero — last run */}
         <section>
-          <div className="eyebrow mb-3">LAST RUN</div>
+          <div className="eyebrow mb-4">LAST RUN</div>
           {data.latestRun ? (
             <div className="flex items-baseline gap-6 flex-wrap">
-              <div className="font-serif text-5xl leading-none">
+              <div className="font-serif text-6xl leading-none tracking-tight">
                 {(data.latestRun as any).status === "success" ? (
                   <>Ran <span className="text-success">{formatRelative((data.latestRun as any).created_at)}</span></>
                 ) : (data.latestRun as any).status === "failed" ? (
@@ -123,7 +122,7 @@ export default async function DashboardPage() {
                 ) : (data.latestRun as any).status === "canceled" ? (
                   <>Canceled <span className="text-mute">{formatRelative((data.latestRun as any).created_at)}</span></>
                 ) : (
-                  <>Running <span className="text-warn">{formatRelative((data.latestRun as any).created_at)}</span></>
+                  <>Running <span className="text-accent">{formatRelative((data.latestRun as any).created_at)}</span></>
                 )}
               </div>
               <div className="text-mute">
@@ -143,7 +142,7 @@ export default async function DashboardPage() {
         </section>
 
         {/* Stat grid */}
-        <section className="grid grid-cols-1 sm:grid-cols-4 gap-px bg-rule/20">
+        <section className="grid grid-cols-1 sm:grid-cols-4 gap-8">
           <StatCard
             eyebrow="AUDIOS"
             value={data.audios}
@@ -183,10 +182,10 @@ export default async function DashboardPage() {
         </section>
 
         {/* Media balance */}
-        <section className="grid grid-cols-1 md:grid-cols-2 gap-8">
+        <section className="grid grid-cols-1 md:grid-cols-2 gap-16">
           <div>
-            <div className="eyebrow mb-3 hairline-b pb-2">AUDIO BALANCE</div>
-            <div className="space-y-4">
+            <div className="eyebrow mb-4 hairline-b pb-3">AUDIO BALANCE</div>
+            <div className="space-y-6">
               <BalanceRow
                 label="Most used"
                 name={data.mostUsedAudio?.name}
@@ -202,8 +201,8 @@ export default async function DashboardPage() {
             </div>
           </div>
           <div>
-            <div className="eyebrow mb-3 hairline-b pb-2">CATEGORY BALANCE</div>
-            <div className="space-y-4">
+            <div className="eyebrow mb-4 hairline-b pb-3">CATEGORY BALANCE</div>
+            <div className="space-y-6">
               <BalanceRow
                 label="Most used"
                 name={data.mostUsedCategory?.name}
@@ -222,7 +221,7 @@ export default async function DashboardPage() {
 
         {/* Recent slices */}
         <section>
-          <div className="flex items-baseline justify-between hairline-b pb-3 mb-4">
+          <div className="flex items-baseline justify-between hairline-b pb-3 mb-6">
             <div className="eyebrow">RECENT SLICES</div>
             <Link href="/executions" className="quiet-link text-sm">
               view runs →
@@ -238,9 +237,9 @@ export default async function DashboardPage() {
                 <li key={slice._id}>
                   <Link
                     href={`/slices/${slice._id}`}
-                    className="grid grid-cols-12 gap-4 items-center py-3 px-2 hover:bg-rule/[0.03] transition-colors"
+                    className="grid grid-cols-12 gap-4 items-center py-4 px-2 hover:bg-paperRaised/50 transition-colors"
                   >
-                    <div className="col-span-1">
+                    <div className="col-span-2">
                       <StatusBadge status={slice.status} />
                     </div>
                     <div className="col-span-4 truncate">
@@ -251,14 +250,8 @@ export default async function DashboardPage() {
                         ? `${formatDuration(slice.slice.start_seconds)} → ${formatDuration(slice.slice.end_seconds)}`
                         : "—"}
                     </div>
-                    <div className="col-span-3">
-                      {slice.slice && (
-                        <DurationBar
-                          value={slice.slice.duration_seconds}
-                          max={data.maxAudioDuration}
-                          label={formatDuration(slice.slice.duration_seconds)}
-                        />
-                      )}
+                    <div className="col-span-2 num text-xs text-inkSoft">
+                      {slice.slice ? formatDuration(slice.slice.duration_seconds) : "—"}
                     </div>
                     <div className="col-span-1 num text-2xs text-mute text-right">
                       {formatRelative(slice.created_at)}
@@ -290,7 +283,7 @@ function BalanceRow({
       <div className="min-w-0">
         <div className="eyebrow mb-1">{label}</div>
         {name ? (
-          <div className="text-sm truncate">
+          <div className="text-base truncate">
             {href ? (
               <Link href={href} className="quiet-link">
                 {name}
@@ -303,7 +296,7 @@ function BalanceRow({
           <div className="text-sm text-mute italic">none registered</div>
         )}
       </div>
-      <div className="num text-lg text-mute shrink-0">
+      <div className="num text-xl text-mute shrink-0">
         {usageCount ?? 0}
         <span className="text-2xs ml-1">uses</span>
       </div>

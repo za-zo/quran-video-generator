@@ -10,9 +10,9 @@ export default function NewAudioPage() {
         title="Add audio"
         meta="Register a Quran recitation by its remote URL. The pipeline downloads it on demand."
       />
-      <div className="px-8 py-8 max-w-2xl">
+      <div className="px-8 py-10 max-w-2xl">
         <AudioForm />
-        <div className="mt-4 text-sm">
+        <div className="mt-8 text-sm">
           <Link href="/audios" className="quiet-link">
             ← back to audios
           </Link>

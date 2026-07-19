@@ -12,18 +12,18 @@ export function Pagination({ basePath, currentPage, totalPages, searchParams }: 
   };
 
   return (
-    <div className="flex items-center justify-between mt-6">
-      <div className="text-sm text-mute">
+    <div className="flex items-center justify-between mt-8 pt-6 hairline-t">
+      <div className="text-sm text-mute num">
         Page {currentPage} of {totalPages}
       </div>
-      <div className="flex gap-2">
+      <div className="flex gap-3">
         {currentPage > 1 && (
-          <Link href={createHref(currentPage - 1)} className="px-3 py-1 hairline-all text-sm hover:bg-rule/10">
+          <Link href={createHref(currentPage - 1)} className="btn-ghost">
             ← Prev
           </Link>
         )}
         {currentPage < totalPages && (
-          <Link href={createHref(currentPage + 1)} className="px-3 py-1 hairline-all text-sm hover:bg-rule/10">
+          <Link href={createHref(currentPage + 1)} className="btn-ghost">
             Next →
           </Link>
         )}

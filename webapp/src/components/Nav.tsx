@@ -1,11 +1,12 @@
 /**
  * Persistent left-rail navigation.
  *
- * Structure encodes information: section labels (DASHBOARD / AUDIOS / …)
- * are uppercase mono eyebrows; the count next to each item is the
- * real number of records in that collection — not a decoration.
- * The active section is marked with a thin oxblood rule on the left,
- * not a background fill, so the rail stays quiet.
+ * Reads like a library catalog index: section labels (DASHBOARD / AUDIOS / …)
+ * are uppercase mono eyebrows; the count next to each item is the real number
+ * of records in that collection — not decoration.
+ *
+ * The active section is marked with a thin oxblood rule on the left, not a
+ * background fill, so the rail stays quiet.
  */
 
 import Link from "next/link";
@@ -38,22 +39,27 @@ export async function Nav() {
   ];
 
   return (
-    <aside className="w-56 shrink-0 hairline-r bg-paper sticky top-0 h-screen overflow-y-auto scroll-archive">
-      <div className="px-6 pt-8 pb-6 hairline-b">
-        <div className="eyebrow mb-2">QURAN VIDEO</div>
-        <div className="font-serif text-lg leading-tight">Generator</div>
+    <aside className="w-60 shrink-0 bg-paperRaised sticky top-0 h-screen overflow-y-auto scroll-archive hairline-r">
+      <div className="px-6 pt-10 pb-8">
+        <div className="flex items-center gap-2 mb-3">
+          <span className="inline-block w-1.5 h-1.5 rounded-full bg-accent" aria-hidden />
+          <div className="eyebrow">QURAN VIDEO</div>
+        </div>
+        <div className="font-serif text-xl leading-tight">Generator</div>
         <div className="eyebrow mt-1">OPERATIONS</div>
       </div>
-      <nav className="py-4">
+      <nav className="py-2">
         {items.map((item) => (
           <Link
             key={item.href}
             href={item.href}
-            className="group block px-6 py-3 hairline-b hover:bg-rule/[0.03] transition-colors"
+            className="group block px-6 py-3 border-l-2 border-transparent hover:border-rule hover:bg-paper/50 transition-colors"
           >
             <div className="eyebrow mb-1">{item.eyebrow}</div>
             <div className="flex items-baseline justify-between">
-              <span className="text-sm font-medium">{item.label}</span>
+              <span className="text-sm font-medium text-inkSoft group-hover:text-ink transition-colors">
+                {item.label}
+              </span>
               {item.count !== null && (
                 <span className="num text-2xs text-mute">{item.count}</span>
               )}
@@ -61,7 +67,7 @@ export async function Nav() {
           </Link>
         ))}
       </nav>
-      <div className="px-6 py-4 mt-auto">
+      <div className="px-6 py-4 mt-8 hairline-t">
         <div className="eyebrow mb-1">VERSION</div>
         <div className="num text-2xs text-mute">cloud / 0.1.0</div>
       </div>

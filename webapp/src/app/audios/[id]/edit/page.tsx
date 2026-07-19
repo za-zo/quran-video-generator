@@ -40,9 +40,9 @@ export default async function EditAudioPage({
         title={`Edit: ${audio.name}`}
         meta="Update the source URL or duration."
       />
-      <div className="px-8 py-8 max-w-2xl">
+      <div className="px-8 py-10 max-w-2xl">
         <AudioForm audio={audio} />
-        <div className="mt-4 text-sm">
+        <div className="mt-8 text-sm">
           <Link href="/audios" className="quiet-link">
             ← back to audios
           </Link>

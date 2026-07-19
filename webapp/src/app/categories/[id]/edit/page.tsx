@@ -46,9 +46,9 @@ export default async function EditCategoryPage({
             : "This category has no videos — safe to delete."
         }
       />
-      <div className="px-8 py-8 max-w-2xl">
+      <div className="px-8 py-10 max-w-2xl">
         <CategoryEditInline category={cat} />
-        <div className="mt-6 text-sm">
+        <div className="mt-8 text-sm">
           <Link href={`/categories/${cat._id}/videos`} className="quiet-link">
             → manage videos in this category
           </Link>

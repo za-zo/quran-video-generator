@@ -85,10 +85,10 @@ export function VideoForm({
 
   return (
     <>
-      <form onSubmit={onSubmit} className="space-y-6 max-w-2xl">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <form onSubmit={onSubmit} className="space-y-8 max-w-2xl">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>
-            <label className="block eyebrow mb-2">
+            <label className="block eyebrow mb-3">
               Name<span className="text-accent ml-1">*</span>
             </label>
             <input
@@ -96,19 +96,19 @@ export function VideoForm({
               value={name}
               onChange={(e) => setName(e.target.value)}
               required
-              className="w-full hairline-all px-3 py-2 bg-paper font-mono text-sm focus:outline-none focus:border-ink"
+              className="field-input"
             />
           </div>
           {categoryOptions && (
             <div>
-              <label className="block eyebrow mb-2">
+              <label className="block eyebrow mb-3">
                 Category<span className="text-accent ml-1">*</span>
               </label>
               <select
                 value={categoryId}
                 onChange={(e) => setCategoryId(e.target.value)}
                 required
-                className="w-full hairline-all px-3 py-2 bg-paper font-mono text-sm focus:outline-none focus:border-ink"
+                className="field-input"
               >
                 <option value="">Select category</option>
                 {categoryOptions.map((c) => (
@@ -121,7 +121,7 @@ export function VideoForm({
           )}
         </div>
         <div>
-          <label className="block eyebrow mb-2">
+          <label className="block eyebrow mb-3">
             Source URL<span className="text-accent ml-1">*</span>
           </label>
           <input
@@ -129,36 +129,36 @@ export function VideoForm({
             value={sourceUrl}
             onChange={(e) => setSourceUrl(e.target.value)}
             required
-            className="w-full hairline-all px-3 py-2 bg-paper font-mono text-sm focus:outline-none focus:border-ink"
+            className="field-input"
           />
         </div>
         <div>
-          <label className="block eyebrow mb-2">Duration (seconds)</label>
+          <label className="block eyebrow mb-3">Duration (seconds)</label>
           <input
             type="number"
             step="0.1"
             min="0"
             value={duration}
             onChange={(e) => setDuration(e.target.value)}
-            className="w-48 hairline-all px-3 py-2 bg-paper font-mono text-sm focus:outline-none focus:border-ink"
+            className="field-input w-48"
           />
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-4">
           <button
             type="submit"
             disabled={submitting}
-            className="px-4 py-2 hairline-all bg-ink text-paper text-sm font-medium hover:bg-rule transition-colors disabled:opacity-50"
+            className="btn-primary"
           >
             {submitting ? "Saving…" : isNew ? "Add video" : "Save changes"}
           </button>
           {error && <span className="text-sm text-failed">{error}</span>}
         </div>
         {!isNew && (
-          <div className="pt-4 hairline-t">
+          <div className="pt-6 hairline-t">
             <button
               type="button"
               onClick={() => setConfirmDelete(true)}
-              className="px-4 py-2 hairline-all text-sm text-failed hover:bg-failed/5"
+              className="btn-danger"
             >
               Delete video
             </button>

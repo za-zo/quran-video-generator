@@ -113,7 +113,7 @@ export default async function SliceDetailPage({
         }
       />
 
-      <div className="px-8 py-8 space-y-12">
+      <div className="px-8 py-10 space-y-16">
         {/* Slice timeline */}
         {slice.slice && slice._audio && (
           <SliceTimeline
@@ -128,17 +128,17 @@ export default async function SliceDetailPage({
         {/* Output: Cloudinary player if success */}
         {slice.status === "success" && slice.output && (
           <section>
-            <div className="eyebrow mb-3 hairline-b pb-2">OUTPUT</div>
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="eyebrow mb-3 hairline-b pb-3">OUTPUT</div>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
               <div className="lg:col-span-2">
                 <video
                   src={slice.output.cloudinary_url}
                   controls
-                  className="w-full hairline-all bg-ink"
+                  className="w-full bg-ink"
                   preload="metadata"
                 />
               </div>
-              <div className="space-y-3 text-sm">
+              <div className="space-y-4 text-sm">
                 <Detail label="Duration" value={formatDuration(slice.output.duration_seconds)} />
                 <Detail label="Resolution" value={`${slice.output.width}×${slice.output.height}`} />
                 <Detail
@@ -170,25 +170,25 @@ export default async function SliceDetailPage({
         {/* Error: if failed or canceled */}
         {(slice.status === "failed" || slice.status === "canceled") && slice.error_message && (
           <section>
-            <div className={`eyebrow mb-3 hairline-b pb-2 ${slice.status === "canceled" ? "text-mute" : "text-failed"}`}>
+            <div className={`eyebrow mb-3 hairline-b pb-3 ${slice.status === "canceled" ? "text-mute" : "text-failed"}`}>
               {slice.status === "canceled" ? "CANCELED" : "ERROR"}
             </div>
-            <pre className="hairline-all p-4 bg-failed/[0.03] text-sm text-failed font-mono whitespace-pre-wrap break-words">
+            <pre className="bg-paperRaised p-5 text-sm text-failed font-mono whitespace-pre-wrap break-words">
               {slice.error_message}
             </pre>
           </section>
         )}
 
         {/* Source audio + category */}
-        <section className="grid grid-cols-1 md:grid-cols-2 gap-8">
+        <section className="grid grid-cols-1 md:grid-cols-2 gap-12">
           <div>
-            <div className="eyebrow mb-3 hairline-b pb-2">SOURCE AUDIO</div>
+            <div className="eyebrow mb-4 hairline-b pb-3">SOURCE AUDIO</div>
             {slice._audio ? (
               <Link
                 href={`/audios/${slice._audio._id}/edit`}
-                className="block hover:bg-rule/[0.03] transition-colors -mx-2 px-2 py-1"
+                className="block hover:bg-paperRaised/50 transition-colors -mx-2 px-2 py-2"
               >
-                <div className="text-sm font-medium">{slice._audio.name}</div>
+                <div className="text-sm font-medium text-ink">{slice._audio.name}</div>
                 <div className="num text-xs text-mute mt-1">
                   {formatDuration(slice._audio.duration_seconds)} total
                 </div>
@@ -203,13 +203,13 @@ export default async function SliceDetailPage({
             )}
           </div>
           <div>
-            <div className="eyebrow mb-3 hairline-b pb-2">SELECTED CATEGORY</div>
+            <div className="eyebrow mb-4 hairline-b pb-3">SELECTED CATEGORY</div>
             {slice._category ? (
               <Link
                 href={`/categories/${slice._category._id}/videos`}
-                className="block hover:bg-rule/[0.03] transition-colors -mx-2 px-2 py-1"
+                className="block hover:bg-paperRaised/50 transition-colors -mx-2 px-2 py-2"
               >
-                <div className="font-serif text-lg">{slice._category.name}</div>
+                <div className="font-serif text-lg text-ink">{slice._category.name}</div>
                 <div className="text-2xs text-mute mt-1">
                   → view videos in this category
                 </div>
@@ -227,12 +227,12 @@ export default async function SliceDetailPage({
         {/* Selected videos */}
         {slice._videos && slice._videos.length > 0 && (
           <section>
-            <div className="eyebrow mb-3 hairline-b pb-2">
+            <div className="eyebrow mb-4 hairline-b pb-3">
               SELECTED VIDEOS ({slice._videos.length})
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-px bg-rule/20">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
               {slice._videos.map((v: any, i: number) => (
-                <div key={v._id} className="bg-paper p-4">
+                <div key={v._id} className="hairline-t pt-4">
                   <div className="flex items-baseline justify-between mb-2">
                     <span className="num text-2xs text-mute">
                       {String(i + 1).padStart(2, "0")}
@@ -241,7 +241,7 @@ export default async function SliceDetailPage({
                       {formatDuration(v.duration_seconds)}
                     </span>
                   </div>
-                  <div className="text-sm font-medium truncate">{v.name}</div>
+                  <div className="text-sm font-medium text-ink truncate">{v.name}</div>
                   <div className="font-mono text-2xs text-mute mt-1 truncate">
                     {truncateUrl(v.source_url, 50)}
                   </div>
@@ -254,8 +254,8 @@ export default async function SliceDetailPage({
         {/* Slice details */}
         {slice.slice && (
           <section>
-            <div className="eyebrow mb-3 hairline-b pb-2">SLICE DETAILS</div>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+            <div className="eyebrow mb-4 hairline-b pb-3">SLICE DETAILS</div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-8">
               <Detail label="Index" value={slice.slice.index} />
               <Detail label="Start" value={formatDuration(slice.slice.start_seconds)} />
               <Detail label="End" value={formatDuration(slice.slice.end_seconds)} />
@@ -288,9 +288,9 @@ function Detail({
   value: React.ReactNode;
 }) {
   return (
-    <div>
-      <div className="eyebrow mb-1">{label}</div>
-      <div className="num text-sm">{value}</div>
+    <div className="hairline-t pt-4">
+      <div className="eyebrow mb-2">{label}</div>
+      <div className="num text-sm text-ink">{value}</div>
     </div>
   );
 }

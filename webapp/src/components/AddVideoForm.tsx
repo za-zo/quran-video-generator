@@ -59,10 +59,10 @@ export function AddVideoForm({ categoryId }: { categoryId: string }) {
   }
 
   return (
-    <form onSubmit={onSubmit} className="space-y-4">
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+    <form onSubmit={onSubmit} className="space-y-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div>
-          <label className="block eyebrow mb-2">
+          <label className="block eyebrow mb-3">
             Name<span className="text-accent ml-1">*</span>
           </label>
           <input
@@ -70,11 +70,11 @@ export function AddVideoForm({ categoryId }: { categoryId: string }) {
             value={name}
             onChange={(e) => setName(e.target.value)}
             required
-            className="w-full hairline-all px-3 py-2 bg-paper font-mono text-sm focus:outline-none focus:border-ink"
+            className="field-input"
           />
         </div>
         <div className="md:col-span-2">
-          <label className="block eyebrow mb-2">
+          <label className="block eyebrow mb-3">
             Source URL<span className="text-accent ml-1">*</span>
           </label>
           <input
@@ -83,27 +83,27 @@ export function AddVideoForm({ categoryId }: { categoryId: string }) {
             onChange={(e) => setSourceUrl(e.target.value)}
             required
             placeholder="https://example.com/sea_0.mp4"
-            className="w-full hairline-all px-3 py-2 bg-paper font-mono text-sm focus:outline-none focus:border-ink"
+            className="field-input"
           />
         </div>
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 items-end">
         <div>
-          <label className="block eyebrow mb-2">Duration (s)</label>
+          <label className="block eyebrow mb-3">Duration (s)</label>
           <input
             type="number"
             step="0.1"
             min="0"
             value={duration}
             onChange={(e) => setDuration(e.target.value)}
-            className="w-full hairline-all px-3 py-2 bg-paper font-mono text-sm focus:outline-none focus:border-ink"
+            className="field-input"
           />
         </div>
-        <div className="md:col-span-3 flex items-center gap-3">
+        <div className="md:col-span-3 flex items-center gap-4">
           <button
             type="submit"
             disabled={submitting}
-            className="px-4 py-2 hairline-all bg-ink text-paper text-sm font-medium hover:bg-rule transition-colors disabled:opacity-50"
+            className="btn-primary"
           >
             {submitting ? "Adding…" : "Add video"}
           </button>

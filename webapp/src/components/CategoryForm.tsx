@@ -62,9 +62,9 @@ export function CategoryForm({ category }: { category?: { _id: string; name: str
 
   return (
     <>
-      <form onSubmit={onSubmit} className="space-y-6 max-w-lg">
+      <form onSubmit={onSubmit} className="space-y-8 max-w-lg">
         <div>
-          <label className="block eyebrow mb-2">
+          <label className="block eyebrow mb-3">
             Name<span className="text-accent ml-1">*</span>
           </label>
           <input
@@ -72,25 +72,25 @@ export function CategoryForm({ category }: { category?: { _id: string; name: str
             value={name}
             onChange={(e) => setName(e.target.value)}
             required
-            className="w-full hairline-all px-3 py-2 bg-paper font-mono text-sm focus:outline-none focus:border-ink"
+            className="field-input"
           />
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-4">
           <button
             type="submit"
             disabled={submitting}
-            className="px-4 py-2 hairline-all bg-ink text-paper text-sm font-medium hover:bg-rule transition-colors disabled:opacity-50"
+            className="btn-primary"
           >
             {submitting ? "Saving…" : isNew ? "Add category" : "Save changes"}
           </button>
           {error && <span className="text-sm text-failed">{error}</span>}
         </div>
         {!isNew && (
-          <div className="pt-4 hairline-t">
+          <div className="pt-6 hairline-t">
             <button
               type="button"
               onClick={() => setConfirmDelete(true)}
-              className="px-4 py-2 hairline-all text-sm text-failed hover:bg-failed/5"
+              className="btn-danger"
             >
               Delete category
             </button>

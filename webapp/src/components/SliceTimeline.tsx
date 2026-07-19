@@ -10,12 +10,9 @@
  *   - how much of the source was used (proportion),
  *   - the absolute duration of both.
  *
- * Tick marks every 10% with mono timestamps. The selected slice is
- * filled with the oxblood accent — the only place on the page that
- * colour is used for emphasis rather than status.
- *
- * The bar is rendered with CSS only (no canvas / SVG) so it scales
- * fluidly and prints cleanly.
+ * The selected slice is filled with the oxblood accent — the only place
+ * outside the page header dot that colour is used for emphasis rather
+ * than status.
  */
 
 import { formatDuration } from "@/lib/format";
@@ -44,17 +41,17 @@ export function SliceTimeline({
   return (
     <figure className="my-6">
       {/* Header: title + audio reference */}
-      <div className="flex items-baseline justify-between hairline-b pb-2 mb-4">
+      <div className="flex items-baseline justify-between hairline-b pb-3 mb-6">
         <div>
-          <div className="eyebrow mb-1">SLICE WITHIN SOURCE AUDIO</div>
+          <div className="eyebrow mb-2">SLICE WITHIN SOURCE AUDIO</div>
           {audioName && (
-            <div className="font-serif text-base italic text-mute">
+            <div className="font-serif text-lg italic text-mute">
               {audioName}
             </div>
           )}
         </div>
         <div className="text-right">
-          <div className="num text-sm">
+          <div className="num text-base text-ink">
             {formatDuration(sliceDuration)}
             <span className="text-mute"> / {formatDuration(audioDuration)}</span>
           </div>
@@ -65,7 +62,7 @@ export function SliceTimeline({
       {/* The bar */}
       <div className="relative">
         {/* Tick labels above the bar */}
-        <div className="relative h-4 mb-1">
+        <div className="relative h-4 mb-2">
           {ticks.map((t) => (
             <span
               key={t}
@@ -79,7 +76,7 @@ export function SliceTimeline({
 
         {/* Track */}
         <div
-          className="relative h-8 bg-rule/[0.08] hairline-all"
+          className="relative h-10 bg-paperRaised hairline-b"
           role="img"
           aria-label={`Slice from ${formatDuration(sliceStart)} to ${formatDuration(
             sliceEnd,
@@ -87,7 +84,7 @@ export function SliceTimeline({
         >
           {/* Selected slice */}
           <div
-            className="absolute inset-y-0 bg-accent/85 hairline-r hairline-l"
+            className="absolute inset-y-0 bg-accent"
             style={{ left: `${startPct}%`, width: `${widthPct}%` }}
           >
             {/* Slice label, centered if there's room */}
@@ -104,7 +101,7 @@ export function SliceTimeline({
           {ticks.map((t) => (
             <div
               key={t}
-              className="absolute top-0 bottom-0 w-px bg-rule/20"
+              className="absolute top-0 bottom-0 w-px bg-rule"
               style={{ left: `${t}%` }}
               aria-hidden
             />
@@ -112,7 +109,7 @@ export function SliceTimeline({
         </div>
 
         {/* Start / end markers below */}
-        <div className="relative h-4 mt-1">
+        <div className="relative h-4 mt-2">
           <span
             className="absolute num text-2xs text-accent -translate-x-1/2 font-medium"
             style={{ left: `${startPct}%` }}
@@ -129,13 +126,13 @@ export function SliceTimeline({
       </div>
 
       {/* Legend */}
-      <figcaption className="mt-6 flex items-center gap-6 text-2xs text-mute font-mono uppercase tracking-wide-2">
+      <figcaption className="mt-8 flex items-center gap-6 text-2xs text-mute font-mono uppercase tracking-wide-2">
         <span className="flex items-center gap-2">
-          <span className="inline-block w-3 h-2 bg-accent/85" />
+          <span className="inline-block w-3 h-2 bg-accent" />
           Selected slice
         </span>
         <span className="flex items-center gap-2">
-          <span className="inline-block w-3 h-2 bg-rule/[0.08] hairline-all" />
+          <span className="inline-block w-3 h-2 bg-paperRaised hairline-b" />
           Source audio
         </span>
       </figcaption>

@@ -21,29 +21,72 @@ body {
 }
 
 @layer components {
+  /* Hairlines — used sparingly. Most "cards" have no border at all and
+     rely on whitespace + bottom rules. */
   .hairline {
-    @apply border-hairline border-t;
+    @apply border-rule border-t;
   }
   .hairline-b {
-    @apply border-hairline border-b;
+    @apply border-rule border-b;
   }
   .hairline-l {
-    @apply border-hairline border-l;
+    @apply border-rule border-l;
   }
   .hairline-r {
-    @apply border-hairline border-r;
+    @apply border-rule border-r;
   }
   .hairline-all {
-    @apply border-hairline border;
+    @apply border-rule border;
   }
+  /* Softer rule for inside-list row separators. */
+  .hairline-b-soft {
+    @apply border-ruleSoft border-b;
+  }
+
+  /* Eyebrows — uppercase mono labels, used as section markers. */
   .eyebrow {
     @apply font-mono text-2xs uppercase tracking-wide-3 text-mute;
   }
+
+  /* Numeric/data text. */
   .num {
     @apply font-mono tabular-nums;
   }
+
+  /* Quiet (inline) link. */
   .quiet-link {
-    @apply underline decoration-rule/30 underline-offset-4 hover:decoration-ink;
+    @apply underline decoration-rule underline-offset-4 hover:decoration-accent hover:text-accent transition-colors;
+  }
+
+  /* Archival form input — bottom border only, no boxed look.
+     This is the single biggest "color/border catastrophe" fix:
+     boxed inputs on every form made the pages feel like a fence. */
+  .field-input {
+    @apply w-full bg-transparent border-b border-rule px-0 py-2 text-sm text-ink
+      focus:outline-none focus:border-ink transition-colors
+      placeholder:text-mute/60;
+  }
+  .field-input-error {
+    @apply border-failed focus:border-failed;
+  }
+
+  /* Solid primary button — ink on paper, no border. */
+  .btn-primary {
+    @apply inline-flex items-center justify-center px-5 py-2 bg-ink text-paper
+      text-sm font-medium hover:bg-inkSoft transition-colors
+      disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  /* Ghost button — hairline border. */
+  .btn-ghost {
+    @apply inline-flex items-center justify-center px-5 py-2 hairline-all
+      text-sm font-medium text-ink hover:bg-paperRaised transition-colors
+      disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  /* Danger button — for delete actions. */
+  .btn-danger {
+    @apply inline-flex items-center justify-center px-5 py-2 hairline-all
+      text-sm font-medium text-failed hover:bg-failed/5 transition-colors
+      disabled:opacity-50 disabled:cursor-not-allowed;
   }
 }
 
@@ -55,11 +98,10 @@ body {
   background: transparent;
 }
 .scroll-archive::-webkit-scrollbar-thumb {
-  background: theme("colors.rule / 30%");
-  border-radius: 0;
+  background: theme("colors.rule");
 }
 .scroll-archive::-webkit-scrollbar-thumb:hover {
-  background: theme("colors.rule / 60%");
+  background: theme("colors.mute");
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -2,10 +2,10 @@
  * DurationBar — a thin horizontal bar visualising a duration as a
  * proportion of a reference maximum.
  *
- * Recurring motif across list pages: each audio/video row gets one so
- * duration becomes a visual quantity, not just a number. The bar uses
- * the rule colour at low opacity so a sea of them reads as a quiet
- * field, with the filled portion in solid ink for contrast.
+ * NOTE: This component is retained for slice-detail contexts where the
+ * proportional relationship is genuinely informative. List tables no
+ * longer use it — see the user request to "remove the duration bar in
+ * all tables, show only the text duration".
  */
 
 export function DurationBar({
@@ -22,10 +22,10 @@ export function DurationBar({
   const pct = max > 0 ? Math.min(100, (value / max) * 100) : 0;
   return (
     <div className={`flex items-center gap-2 ${className}`}>
-      <div className="flex-1 h-1 bg-rule/15 relative">
+      <div className="flex-1 h-px bg-rule relative">
         <div
-          className="absolute inset-y-0 left-0 bg-ink"
-          style={{ width: `${pct}%` }}
+          className="absolute -inset-y-px left-0 bg-ink"
+          style={{ width: `${pct}%`, height: "3px", top: "-1px" }}
           aria-hidden
         />
       </div>

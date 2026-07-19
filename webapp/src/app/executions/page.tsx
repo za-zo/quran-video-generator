@@ -6,7 +6,7 @@ import { stringifyIds } from "@/lib/types";
 import { PageHeader } from "@/components/PageHeader";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Pagination } from "@/components/Pagination";
-import { formatRelative, formatDuration } from "@/lib/format";
+import { formatRelative } from "@/lib/format";
 
 const PAGE_SIZE = 30;
 
@@ -55,15 +55,15 @@ export default async function ExecutionsPage({
         title="Execution Runs"
         meta="One record per GitHub Actions run. Click to see individual slices."
         actions={
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1 flex-wrap">
             {tabs.map((t) => (
               <Link
                 key={t.label}
                 href={t.value ? `/executions?status=${t.value}` : "/executions"}
-                className={`px-3 py-1.5 hairline-all text-xs uppercase tracking-wide-2 font-mono transition-colors ${
+                className={`px-3 py-1.5 text-xs uppercase tracking-wide-2 font-mono transition-colors ${
                   status === t.value || (!status && !t.value)
                     ? "bg-ink text-paper"
-                    : "hover:bg-rule/[0.05]"
+                    : "text-mute hover:text-ink hover:bg-paperRaised"
                 }`}
               >
                 {t.label}
@@ -73,19 +73,19 @@ export default async function ExecutionsPage({
         }
       />
 
-      <div className="px-8 py-8">
+      <div className="px-8 py-10">
         {runs.length === 0 ? (
-          <div className="hairline-all p-12 text-center">
+          <div className="hairline-t pt-12 text-center">
             <div className="eyebrow mb-3">EMPTY</div>
-            <h2 className="font-serif text-2xl mb-2">No runs found</h2>
+            <h2 className="font-serif text-3xl mb-3">No runs found</h2>
             <p className="text-mute text-sm">
               Try a different status filter, or trigger a pipeline run via GitHub Actions.
             </p>
           </div>
         ) : (
           <>
-            <div className="hairline-all">
-              <div className="grid grid-cols-12 gap-4 px-4 py-2 hairline-b bg-rule/[0.03]">
+            <div>
+              <div className="grid grid-cols-12 gap-4 px-2 py-3 hairline-b">
                 <div className="col-span-2 eyebrow">STATUS</div>
                 <div className="col-span-2 eyebrow">GITHUB RUN</div>
                 <div className="col-span-2 eyebrow">SLICES</div>
@@ -96,10 +96,10 @@ export default async function ExecutionsPage({
               </div>
               <ul>
                 {runs.map((run: any) => (
-                  <li key={run._id} className="hairline-b last:border-b-0">
+                  <li key={run._id} className="hairline-b-soft last:border-b-0">
                     <Link
                       href={`/executions/${run._id}`}
-                      className="grid grid-cols-12 gap-4 px-4 py-3 items-center hover:bg-rule/[0.03] transition-colors"
+                      className="grid grid-cols-12 gap-4 px-2 py-4 items-center hover:bg-paperRaised/50 transition-colors"
                     >
                       <div className="col-span-2">
                         <StatusBadge status={run.status} />
@@ -107,7 +107,7 @@ export default async function ExecutionsPage({
                       <div className="col-span-2 num text-xs text-mute truncate">
                         {run.github_run_id ?? "—"}
                       </div>
-                      <div className="col-span-2 num text-sm">
+                      <div className="col-span-2 num text-sm text-inkSoft">
                         {run.total_slices ?? "—"}
                       </div>
                       <div className="col-span-1 num text-sm text-success text-right">
@@ -116,7 +116,7 @@ export default async function ExecutionsPage({
                       <div className="col-span-1 num text-sm text-failed text-right">
                         {run.failed_count ?? 0}
                       </div>
-                      <div className="col-span-2">
+                      <div className="col-span-2 num text-xs text-inkSoft">
                         {run.completed_at && run.created_at
                           ? formatRelative(new Date(run.completed_at).getTime() - new Date(run.created_at).getTime() > 0
                               ? (new Date(run.completed_at).getTime() - new Date(run.created_at).getTime()) / 1000

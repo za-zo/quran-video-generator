@@ -6,9 +6,7 @@ import { notFound } from "next/navigation";
 import { getDb } from "@/lib/mongo";
 import { stringifyIds } from "@/lib/types";
 import { PageHeader } from "@/components/PageHeader";
-import { DurationBar } from "@/components/DurationBar";
 import { AddVideoForm } from "@/components/AddVideoForm";
-import { VideoForm } from "@/components/VideoForm";
 import { formatDuration, truncateUrl } from "@/lib/format";
 
 async function getCategoryAndVideos(id: string) {
@@ -26,31 +24,20 @@ async function getCategoryAndVideos(id: string) {
     .find({ category_id: oid })
     .sort({ _id: 1 })
     .toArray();
-  const maxDur = vids.reduce(
-    (m, d) => Math.max(m, (d as any).duration_seconds || 0),
-    1,
-  );
   const catS = stringifyIds(cat) as any;
   return {
     category: { _id: String(catS._id), name: String(catS.name ?? "") },
     videos: vids.map((v) => stringifyIds(v)),
-    maxDur,
   };
 }
 
 export default async function CategoryVideosPage({
   params,
-  searchParams,
 }: {
   params: { id: string };
-  searchParams: { edit?: string };
 }) {
   const data = await getCategoryAndVideos(params.id);
   if (!data) notFound();
-
-  const editingVideo = searchParams.edit
-    ? data.videos.find((v: any) => v._id === searchParams.edit)
-    : null;
 
   return (
     <>
@@ -60,18 +47,18 @@ export default async function CategoryVideosPage({
         actions={
           <Link
             href={`/categories/${data.category._id}/edit`}
-            className="quiet-link text-sm"
+            className="btn-ghost"
           >
-            edit category →
+            Edit category
           </Link>
         }
         meta="Background videos for this scenery category. The pipeline picks from these when this category is selected."
       />
 
-      <div className="px-8 py-8 space-y-10">
+      <div className="px-8 py-10 space-y-12">
         {/* Add form */}
-        <section className="hairline-all p-6 max-w-2xl">
-          <div className="eyebrow mb-3">ADD VIDEO</div>
+        <section className="max-w-2xl">
+          <div className="eyebrow mb-4 hairline-b pb-3">ADD VIDEO</div>
           <AddVideoForm categoryId={data.category._id} />
         </section>
 
@@ -79,57 +66,48 @@ export default async function CategoryVideosPage({
         {data.videos.length === 0 ? (
           <p className="text-mute italic">No videos in this category yet.</p>
         ) : (
-          <section className="hairline-all">
-            <div className="grid grid-cols-12 gap-4 px-4 py-2 hairline-b bg-rule/[0.03]">
-              <div className="col-span-1 eyebrow">#</div>
-              <div className="col-span-3 eyebrow">NAME</div>
-              <div className="col-span-4 eyebrow">SOURCE URL</div>
-              <div className="col-span-2 eyebrow">DURATION</div>
-              <div className="col-span-1 eyebrow text-right">USES</div>
-              <div className="col-span-1 eyebrow text-right">ACTIONS</div>
+          <section>
+            <div>
+              <div className="grid grid-cols-12 gap-4 px-2 py-3 hairline-b">
+                <div className="col-span-1 eyebrow">#</div>
+                <div className="col-span-3 eyebrow">NAME</div>
+                <div className="col-span-4 eyebrow">SOURCE URL</div>
+                <div className="col-span-2 eyebrow">DURATION</div>
+                <div className="col-span-1 eyebrow text-right">USES</div>
+                <div className="col-span-1 eyebrow text-right">ACTIONS</div>
+              </div>
+              <ul>
+                {data.videos.map((v: any, i: number) => (
+                  <li key={v._id} className="hairline-b-soft last:border-b-0">
+                    <div className="grid grid-cols-12 gap-4 px-2 py-4 items-center">
+                      <div className="col-span-1 num text-2xs text-mute">
+                        {String(i + 1).padStart(3, "0")}
+                      </div>
+                      <div className="col-span-3 truncate text-sm font-medium text-ink">
+                        {v.name}
+                      </div>
+                      <div className="col-span-4 truncate text-xs text-mute font-mono">
+                        {truncateUrl(v.source_url, 60)}
+                      </div>
+                      <div className="col-span-2 num text-sm text-inkSoft">
+                        {formatDuration(v.duration_seconds)}
+                      </div>
+                      <div className="col-span-1 num text-sm text-right text-inkSoft">
+                        {v.usage_count}
+                      </div>
+                      <div className="col-span-1 text-right">
+                        <Link
+                          href={`/categories/${data.category._id}/videos?edit=${v._id}`}
+                          className="text-2xs text-mute hover:text-accent transition-colors uppercase tracking-wide-2 font-mono"
+                        >
+                          edit
+                        </Link>
+                      </div>
+                    </div>
+                  </li>
+                ))}
+              </ul>
             </div>
-            <ul>
-              {data.videos.map((v: any, i: number) => (
-                <li key={v._id} className="hairline-b last:border-b-0">
-                  <div className="grid grid-cols-12 gap-4 px-4 py-3 items-center">
-                    <div className="col-span-1 num text-2xs text-mute">
-                      {String(i + 1).padStart(3, "0")}
-                    </div>
-                    <div className="col-span-3 truncate text-sm font-medium">
-                      {v.name}
-                    </div>
-                    <div className="col-span-4 truncate text-xs text-mute font-mono">
-                      {truncateUrl(v.source_url, 60)}
-                    </div>
-                    <div className="col-span-2">
-                      <DurationBar
-                        value={v.duration_seconds}
-                        max={data.maxDur}
-                        label={formatDuration(v.duration_seconds)}
-                      />
-                    </div>
-                    <div className="col-span-1 num text-sm text-right">
-                      {v.usage_count}
-                    </div>
-                    <div className="col-span-1 text-right">
-                      <Link
-                        href={`/categories/${data.category._id}/videos?edit=${v._id}`}
-                        className="px-2 py-1 hairline-all text-2xs hover:bg-rule/[0.05]"
-                      >
-                        edit
-                      </Link>
-                    </div>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </section>
-        )}
-
-        {editingVideo && (
-          <section className="hairline-all p-6 max-w-2xl">
-            <div className="eyebrow mb-3">EDIT VIDEO</div>
-            <VideoForm video={editingVideo as any} />
           </section>
         )}
       </div>
