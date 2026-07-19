@@ -1,189 +1,268 @@
 # Quran Video Generator
 
-A **100% offline, local** Python application that automatically generates
+A **cloud-native** Python + Next.js system that automatically generates
 short Quran recitation videos optimised for TikTok, Instagram Reels, and
-YouTube Shorts. It uses **FFmpeg** (via `subprocess`) for every media
-operation and **SQLite + SQLAlchemy** for usage tracking. No cloud APIs, no
-AI services — everything runs on your own machine.
+YouTube Shorts. The Python pipeline runs in **GitHub Actions**, metadata
+lives in **MongoDB Atlas**, and final MP4s are uploaded to **Cloudinary**.
+A companion Next.js webapp lets the operator register media and browse
+results.
 
 ---
 
 ## ✨ Features
 
 - **Weighted-random least-used selection** for audios, categories, and
-  individual background videos — never purely random, never purely
-  deterministic, so content distribution stays fair but varied.
+  individual background videos — fair but varied distribution.
 - **Non-overlapping random clip extraction** from full-surah audio files.
-- **Category cooldown** to avoid the same scenery appearing in back-to-back
-  outputs.
-- **Mute → concat → trim → merge** FFmpeg pipeline that strips all original
-  video audio and re-encodes every stage with a normalised, closed-GOP
-  layout for seamless concat boundaries (no frozen frames / black flashes).
+- **Category cooldown** to avoid the same scenery in back-to-back outputs.
+- **FFmpeg pipeline** that re-encodes every stage (mute, concat, trim,
+  merge) with a normalised, closed-GOP layout — no frozen frames or black
+  flashes at concat boundaries.
+- **Cloud-native execution**: GitHub Actions runs the pipeline; MongoDB
+  Atlas stores all metadata; Cloudinary hosts the final MP4s.
 - **Resilient batch mode** — a single clip failure never crashes the run.
+- **Next.js admin webapp** with a slice-timeline visualisation showing
+  exactly which portion of which audio became which video.
 - **Fully configurable** via `config.yaml` and/or `.env`; nothing is
   hardcoded.
-- **Modular, SOLID architecture** (Strategy / Repository / Facade) so new
-  features (subtitles, translations, GUI, scheduling) can be added without
-  major refactoring.
 
 ---
 
-## 🗂 Folder layout (input)
-
-The application expects this layout (do **not** rename the folders):
+## 🏗 Architecture
 
 ```
-project/
-  audios/
-      001.mp3
-      002.mp3
-      ...
-  videos/
-      sea/*.mp4
-      forest/*.mp4
-      waterfall/*.mp4
-      rivers/*.mp4
-      desert/*.mp4
-      mountains/*.mp4
-      sky/*.mp4
+                    ┌─────────────────────┐
+                    │   MongoDB Atlas      │  ← single source of truth
+                    │  (audios, categories,│
+                    │   videos, executions)│
+                    └──────────┬───────────┘
+                               │
+        ┌──────────────────────┼───────────────────────┐
+        │                      │                        │
+┌───────▼────────┐   ┌─────────▼─────────┐   ┌──────────▼─────────┐
+│ GitHub Actions  │   │  Next.js Webapp    │   │   Cloudinary        │
+│ runs Python     │   │  /webapp           │   │  (final MP4 videos) │
+│ pipeline on a   │   │  - register media  │   │                     │
+│ schedule/manual │   │  - browse results  │   │                     │
+└─────────────────┘   └────────────────────┘   └─────────────────────┘
 ```
 
-Each sub-folder of `videos/` becomes one **category**; any sub-folder that
-contains at least one `.mp4` is treated as a category.
+**Media lifecycle (audio/video INPUT):**
+1. Operator registers a media file's remote URL via the Next.js webapp.
+2. Webapp writes a document into MongoDB's `audios` / `videos` collection
+   containing the URL + metadata (NOT the file itself).
+3. When the Python pipeline runs (in GitHub Actions), it downloads the
+   needed media file(s) into a runner-local temp directory just before
+   processing, uses them, then discards them when the job finishes.
+
+**Output lifecycle (generated video):**
+1. Pipeline builds the final MP4 locally on the runner (FFmpeg).
+2. Pipeline uploads the final MP4 to Cloudinary.
+3. Pipeline writes an `executions` document in MongoDB with the Cloudinary
+   URL + metadata.
+4. Local temp file is deleted.
 
 ---
 
-## 🏗 Project structure
+## 🗂 Project structure
 
 ```
-src/
-  config/settings.py          – Pydantic BaseSettings (config.yaml + .env)
-  database/
-    models.py                 – SQLAlchemy ORM (audios, categories, videos, generation_jobs)
-    session.py                – engine + session factory (SQLite)
-    repository.py             – AudioRepo / CategoryRepo / VideoRepo / JobRepo
-  services/
-    base_selector.py          – Strategy base class (weighted random core)
-    audio_selector.py         – Weighted least-used audio selection
-    category_selector.py      – Weighted least-used + cooldown
-    video_selector.py         – Per-clip video selection until duration covered
-    clip_extractor.py         – Non-overlapping zone-based clip extraction
-    video_processor.py        – All FFmpeg operations (mute, concat, trim, merge, export)
-    generation_orchestrator.py – Facade that runs the full pipeline
-  models/entities.py          – Dataclasses (AudioClip, VideoSegment, …)
-  utils/
-    ffmpeg_utils.py           – subprocess wrappers + stderr classification + retry
-    logger.py                 – Rotating file + console logger
-    file_utils.py             – folder scanning, temp dir cleanup
-  exceptions.py               – AppBaseException + 7 specific subclasses
-main.py                       – CLI: init-db / generate / stats
-tests/                        – pytest unit tests (selectors, clip_extractor, video_processor)
+quran-video-generator/
+├── .github/workflows/
+│   └── generate-videos.yml       # GitHub Actions: schedule + manual trigger
+├── src/
+│   ├── config/settings.py        # Pydantic settings (Mongo + Cloudinary + ffmpeg params)
+│   ├── database/
+│   │   ├── mongo_client.py       # cached MongoClient + test-injection hook
+│   │   └── repository.py         # AudioRepo / CategoryRepo / VideoRepo / ExecutionRepo
+│   ├── services/
+│   │   ├── audio_selector.py     # weighted least-used selection
+│   │   ├── category_selector.py  # weighted + cooldown
+│   │   ├── video_selector.py     # per-clip selection until duration covered
+│   │   ├── clip_extractor.py     # non-overlapping zone-based clip extraction
+│   │   ├── video_processor.py    # FFmpeg operations (mute, concat, trim, merge)
+│   │   └── generation_orchestrator.py  # Facade: select → download → ffmpeg → upload
+│   ├── models/entities.py        # AudioRecord / VideoSegment / AudioClip / …
+│   ├── utils/
+│   │   ├── ffmpeg_utils.py       # subprocess wrappers + closed-GOP re-encoding
+│   │   ├── media_downloader.py   # stream remote URLs → runner-local temp
+│   │   ├── cloudinary_uploader.py # upload final MP4 → Cloudinary
+│   │   ├── file_utils.py         # temp_workdir, cleanup, ensure_dir
+│   │   └── logger.py             # rotating file + console
+│   └── exceptions.py             # AppBaseException + subclasses
+├── tests/                        # pytest (36 tests, mongomock-backed)
+├── webapp/                       # Next.js 14 admin webapp (separate README)
+├── main.py                       # CLI: init-db / generate / stats
+├── requirements.txt              # Python deps (pymongo, cloudinary, requests, …)
+├── config.example.yaml           # copy to config.yaml
+└── .env.example                  # copy to .env
 ```
 
 ---
 
 ## 🚀 Setup
 
-### 1. Install Python dependencies
+### 1. Provision cloud infrastructure
+
+**MongoDB Atlas**: create a free M0 cluster, add a database user, and
+allow access from anywhere (or from GitHub Actions IPs). Copy the
+connection string.
+
+**Cloudinary**: create a free account, copy your cloud name / API key /
+API secret from the dashboard.
+
+### 2. Set GitHub repository secrets
+
+Go to your repo → Settings → Secrets and variables → Actions → New
+repository secret, and add:
+
+| Secret name                 | Value                                            |
+| --------------------------- | ------------------------------------------------ |
+| `MONGODB_URI`               | `mongodb+srv://user:password@cluster0.xxx.mongodb.net` |
+| `MONGODB_DB_NAME`           | `quran_video_generator` (or your chosen name)    |
+| `CLOUDINARY_CLOUD_NAME`     | your Cloudinary cloud name                       |
+| `CLOUDINARY_API_KEY`        | your Cloudinary API key                          |
+| `CLOUDINARY_API_SECRET`     | your Cloudinary API secret                       |
+
+### 3. (Optional) Set up the webapp locally
+
+```bash
+cd webapp
+npm install
+cp .env.local.example .env.local
+# edit .env.local: set MONGODB_URI to the same value as above
+npm run dev
+```
+
+Register your audios and videos via the webapp (`/audios`, `/categories`,
+`/categories/[id]/videos`). Each entry needs a remote URL pointing to a
+directly downloadable file.
+
+### 4. Run the pipeline
+
+Trigger the GitHub Actions workflow manually:
+- Go to your repo → Actions → "generate-videos" → Run workflow.
+- Choose inputs: `audio_count` (how many audios to process), or tick
+  `smoke_test` for a cheap 1-audio / 1-clip / 15s end-to-end check.
+
+Or run locally (with env vars set):
 
 ```bash
 pip install -r requirements.txt
-```
-
-> Python 3.10+ is required.
-
-### 2. Install FFmpeg
-
-`ffmpeg` and `ffprobe` must be on your `PATH`. On Debian/Ubuntu:
-
-```bash
-sudo apt-get install -ffmpeg
-```
-
-On macOS: `brew install ffmpeg`. On Windows: download from
-<https://ffmpeg.org/> and add the `bin/` folder to `PATH`.
-
-### 3. Configure the app
-
-```bash
-cp config.example.yaml config.yaml
-cp .env.example .env
-```
-
-Edit `config.yaml` to taste. All values are documented inline. Environment
-variables in `.env` override the YAML values.
-
-### 4. Initialise the database and scan your media folders
-
-```bash
-python main.py init-db
-```
-
-This creates `data/app.db` and scans `audios/` and `videos/`, probing every
-file with `ffprobe` to record its duration. Any unreadable file is skipped
-with a warning.
-
----
-
-## 🎬 Usage
-
-### Generate videos
-
-```bash
-# Process 1 audio, generate up to 5 clips of 60s each
+python main.py init-db          # ensures MongoDB indexes + pings the cluster
 python main.py generate --audio-count 1 --clips-per-audio 5
-
-# Process 10 audios in one batch run
-python main.py generate --batch 10
-
-# Override clip duration for this run only
-python main.py generate --audio-count 3 --clip-duration 45
-
-# Reproducible run (fixed RNG seed)
-python main.py generate --audio-count 1 --seed 42
+python main.py stats            # show usage counters
 ```
 
-Final videos land in `output/` with deterministic, traceable filenames:
-
-```
-output/{audio_id}_{clip_index}_{YYYYMMDD_HHMMSS}.mp4
-```
-
-### Inspect usage stats
-
-```bash
-python main.py stats
-```
-
-Prints a per-audio / per-category / per-video table showing `usage_count`
-and `last_used_at` so you can verify the weighted selection is fair.
+Final videos are uploaded to Cloudinary; the webapp's `/executions` page
+shows them with an embedded player.
 
 ---
 
 ## ⚙️ Configuration reference
 
-| Key                            | Default       | Description                                              |
-| ------------------------------ | ------------- | ------------------------------------------------------- |
-| `clip_duration`                | `60`          | Length (seconds) of each generated clip                  |
-| `clips_per_audio`              | `5`           | Max non-overlapping clips per audio                      |
-| `resolution`                   | `1080x1920`   | Output video resolution (WxH)                            |
-| `fps`                          | `30`          | Output framerate                                         |
-| `video_codec`                  | `libx264`     | FFmpeg video codec                                       |
-| `audio_codec`                  | `aac`         | FFmpeg audio codec                                       |
-| `output_dir`                   | `./output`    | Where final MP4s are written                             |
-| `temp_dir`                     | `./temp`      | Temp working dir for intermediate FFmpeg artefacts       |
-| `category_cooldown`            | `3`           | Exclude categories used in the last K clips              |
-| `allow_video_reuse_within_job` | `true`        | Allow cycling videos if a category is exhausted          |
-| `log_level`                    | `INFO`        | `DEBUG`/`INFO`/`WARNING`/`ERROR`/`CRITICAL`              |
-| `db_path`                      | `./data/app.db` | SQLite database file                                   |
-| `audios_dir`                   | `./audios`    | Source audio folder                                      |
-| `videos_dir`                   | `./videos`    | Source background videos root                            |
-| `selection.recency_decay_minutes` | `1440`     | Recency penalty half-life (minutes)                      |
-| `selection.usage_weight`       | `1.0`         | Weight applied to inverse-usage score                    |
-| `selection.recency_weight`     | `1.0`         | Weight applied to recency score                          |
-| `logging.log_dir`              | `./logs`      | Log directory                                            |
-| `logging.max_log_size_mb`      | `5`           | Max log file size before rotation                        |
-| `logging.backup_count`         | `5`           | Rotated log files to keep                                |
+| Key                            | Default                  | Description                                              |
+| ------------------------------ | ------------------------ | ------------------------------------------------------- |
+| `mongodb_uri`                  | (required env)           | MongoDB Atlas connection string                         |
+| `mongodb_db_name`              | `quran_video_generator`  | Database name                                            |
+| `cloudinary_cloud_name`        | (required env)           | Cloudinary cloud name                                    |
+| `cloudinary_api_key`           | (required env)           | Cloudinary API key                                       |
+| `cloudinary_api_secret`        | (required env)           | Cloudinary API secret                                    |
+| `github_run_id`                | (auto by workflow)       | Stored on each execution for traceability                |
+| `clip_duration`                | `60`                     | Length (seconds) of each generated clip                  |
+| `clips_per_audio`              | `5`                      | Max non-overlapping clips per audio                      |
+| `resolution`                   | `1080x1920`              | Output video resolution (WxH)                            |
+| `fps`                          | `30`                     | Output framerate                                         |
+| `video_codec`                  | `libx264`                | FFmpeg video codec                                       |
+| `audio_codec`                  | `aac`                    | FFmpeg audio codec                                       |
+| `category_cooldown`            | `3`                      | Exclude categories used in the last K clips              |
+| `allow_video_reuse_within_job` | `true`                   | Allow cycling videos if a category is exhausted          |
+
+---
+
+## 🗄 MongoDB collections
+
+The schema is shared between the Python pipeline and the Next.js webapp.
+Field names MUST stay in sync — see `src/database/repository.py` and
+`webapp/src/lib/types.ts`.
+
+### `audios`
+```js
+{
+  _id: ObjectId,
+  name: "001",
+  source_url: "https://...",         // remote URL downloaded at runtime
+  duration_seconds: 240.0,
+  usage_count: 0,
+  last_used_at: null,
+  created_at: ISODate,
+}
+```
+
+### `categories`
+```js
+{
+  _id: ObjectId,
+  name: "sea",
+  usage_count: 0,
+  last_used_at: null,
+  created_at: ISODate,
+}
+```
+
+### `videos`
+```js
+{
+  _id: ObjectId,
+  category_id: ObjectId,             // ref categories._id
+  name: "sea_0",
+  source_url: "https://...",
+  duration_seconds: 35.0,
+  usage_count: 0,
+  last_used_at: null,
+  created_at: ISODate,
+}
+```
+
+### `executions` (one document per generated clip)
+```js
+{
+  _id: ObjectId,
+  audio_id: ObjectId,
+  status: "pending" | "success" | "failed",
+  error_message: null,
+  slice: {
+    index: 0,
+    start_seconds: 12.4,
+    end_seconds: 72.4,
+    duration_seconds: 60.0,
+  },
+  selected_category_id: ObjectId,
+  selected_video_ids: [ObjectId, ...],
+  output: {
+    cloudinary_url: "https://res.cloudinary.com/.../video.mp4",
+    cloudinary_public_id: "quran-video-generator/executions/<id>",
+    duration_seconds: 60.0,
+    width: 1080,
+    height: 1920,
+  } | null,
+  github_run_id: "1234567890",
+  created_at: ISODate,
+  completed_at: ISODate | null,
+}
+```
+
+**Indexes** (created by `init-db` / `ensure_indexes`):
+- `audios`: `usage_count`, unique `name`
+- `categories`: `usage_count`, `last_used_at`, unique `name`
+- `videos`: compound `(category_id, usage_count)`, unique `(category_id, name)`
+- `executions`: `created_at` (desc), `status`
+
+**Compatibility note**: the previous SQLite table was named
+`generation_jobs`. The Mongo collection is renamed to `executions` to
+match the new terminology used throughout the webapp. The Python
+repository exposes a `JobRepo = ExecutionRepo` alias for backwards
+compatibility, but new code should use `ExecutionRepo` directly.
 
 ---
 
@@ -198,36 +277,22 @@ weight    = usage_weight * inv_usage + recency_weight * recency
 ```
 
 A candidate is then chosen via `random.choices(candidates, weights=weights)`.
-If all weights are zero (e.g. all candidates fresh), the selector falls back
-to uniform sampling so the pipeline always makes progress.
+If all weights are zero, the selector falls back to uniform sampling.
 
 Category selection additionally filters out any category whose
 `last_used_at` is among the K most-recent uses (configurable via
-`category_cooldown`), guaranteeing visual variety in back-to-back outputs.
+`category_cooldown`).
 
 ---
 
 ## 🛡 Error handling
 
-Custom exception hierarchy rooted at `AppBaseException`:
-
-```
-AppBaseException
-  ├── InsufficientAudioDurationError
-  ├── InsufficientCategoryContentError
-  ├── CorruptedMediaError
-  ├── UnsupportedCodecError
-  ├── FFmpegExecutionError
-  ├── NoAvailableCategoryError
-  └── DatabaseIntegrityError
-```
-
-Every FFmpeg call captures stderr and translates well-known failure
-signatures (`Invalid data found`, `moov atom not found`, `Unknown codec`,
-…) into the matching exception. Each FFmpeg call is retried once on
-transient failure. If a clip fails at any step, the job is marked `failed`
-in the database with the error message, temp files are cleaned up, and the
-next clip proceeds — the batch never crashes.
+Custom exception hierarchy rooted at `AppBaseException`. Every FFmpeg /
+download / upload call is retried once on transient failure. If a clip
+fails at any step, the execution is marked `failed` in MongoDB with the
+error message, temp files are cleaned up, and the next clip proceeds —
+the batch never crashes. A run with at least one success exits 0 (Actions
+green); only exits non-zero if literally nothing succeeded.
 
 ---
 
@@ -237,46 +302,45 @@ next clip proceeds — the batch never crashes.
 pytest -v
 ```
 
-Unit tests cover:
+36 unit tests, fully offline (mongomock for the DB, mocked subprocesses
+for FFmpeg, mocked `requests` for downloads, mocked Cloudinary SDK for
+uploads):
 
-- **`test_selectors.py`** — weighted selection statistics over many runs
-  (low-usage candidates are picked significantly more often than high-usage
-  ones), cooldown filtering, video-reuse behaviour.
-- **`test_clip_extractor.py`** — non-overlap property, bounds, indices,
-  reproducibility with seed, error on too-short audio.
-- **`test_video_processor.py`** — FFmpeg command construction (mocked
-  subprocess) verifies re-encode + closed-GOP flags at every stage
-  (mute, concat demuxer, concat filter_complex fallback, trim), plus
-  extract/merge flags.
+- `test_selectors.py` — weighted distribution statistics, cooldown, reuse.
+- `test_clip_extractor.py` — non-overlap, bounds, indices, reproducibility.
+- `test_video_processor.py` — FFmpeg command construction (re-encode +
+  closed-GOP flags at every stage).
+- `test_media_downloader.py` — happy path, non-2xx, network errors,
+  retry-once, empty file, ffprobe validation hook.
+- `test_cloudinary_uploader.py` — happy path, SDK exception translation,
+  missing credentials, missing file, unexpected response.
 
 ---
 
 ## 🔒 Constraints respected
 
-- ❌ No AI/cloud APIs — 100% offline, local FFmpeg + Python.
-- ❌ No single giant script — strict modular architecture.
-- ❌ No hardcoded config — everything flows through `Settings`.
-- ❌ No `random.choice()` for selection — weighted `random.choices()` everywhere.
+- ❌ No media files committed to the repo — only remote URLs in MongoDB.
+- ❌ No local SQLite — MongoDB Atlas is the single source of truth.
+- ❌ No output files left on disk — final MP4s go to Cloudinary.
 - ❌ No batch crashes on a single failure.
-- ❌ No original video audio in the final output — every background video is
-  muted with `-an` before merging.
+- ❌ No `random.choice()` for selection — weighted `random.choices()`.
+- ❌ No original video audio in the final output — every background video
+  is muted with `-an` before merging.
+- ❌ No auth on the webapp — intentional single-operator tool. Don't
+  expose it to the public internet without your own gateway.
 
 ---
 
 ## 🛣 Future extensions
 
-The architecture is intentionally open for extension:
-
-- **Subtitles / translations** — add a new `SubtitleService` that overlays
-  text via FFmpeg's `subtitles` filter in `VideoProcessor.build_clip`.
-- **Multiple reciters** — add a `reciter` column to `audios` and a new
-  `ReciterSelector` (same `BaseSelector` interface).
-- **Different aspect ratios** — already configurable via `resolution`; just
-  change `config.yaml`.
-- **GUI** — `GenerationOrchestrator` is UI-agnostic; wrap it with a
-  Streamlit / Tkinter / Electron shell.
-- **Scheduling** — call `main.py generate --batch N` from a cron job or
-  systemd timer.
+- **Subtitles / translations** — overlay text via FFmpeg's `subtitles`
+  filter in `VideoProcessor.build_clip`.
+- **Multiple reciters** — add a `reciter` field to `audios` and a
+  `ReciterSelector`.
+- **Different aspect ratios** — already configurable via `resolution`.
+- **Scheduling** — tune the cron in `.github/workflows/generate-videos.yml`.
+- **Webapp auth** — wrap with NextAuth.js or a reverse-proxy gateway if
+  multi-operator use is ever needed.
 
 ---
 
