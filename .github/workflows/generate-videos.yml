@@ -49,6 +49,16 @@ on:
         required: false
         default: ""
         type: string
+      log_level:
+        description: "Log level for the pipeline (DEBUG to see all details)"
+        required: false
+        default: "INFO"
+        type: choice
+        options:
+          - INFO
+          - DEBUG
+          - WARNING
+          - ERROR
       smoke_test:
         description: "Smoke test: 1 audio, 1 clip, 15s duration (overrides the three above)"
         required: false
@@ -76,7 +86,7 @@ jobs:
       CLOUDINARY_API_SECRET: ${{ secrets.CLOUDINARY_API_SECRET }}
       GITHUB_RUN_ID: ${{ github.run_id }}
       QVG_CONFIG_FILE: config.example.yaml
-      LOG_LEVEL: INFO
+      LOG_LEVEL: ${{ github.event.inputs.log_level || 'INFO' }}
 
     steps:
       - name: Checkout
