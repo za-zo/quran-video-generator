@@ -6,6 +6,8 @@ import { PageHeader } from "@/components/PageHeader";
 import { VideoForm } from "@/components/VideoForm";
 import { BackLink } from "@/components/BackLink";
 
+export const dynamic = "force-dynamic";
+
 async function getVideo(categoryId: string, videoId: string) {
   let vidOid: ObjectId;
   let catOid: ObjectId;

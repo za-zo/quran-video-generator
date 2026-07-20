@@ -6,6 +6,8 @@ import { PageHeader } from "@/components/PageHeader";
 import { AudioForm } from "@/components/AudioForm";
 import { BackLink } from "@/components/BackLink";
 
+export const dynamic = "force-dynamic";
+
 async function getAudio(id: string) {
   let oid: ObjectId;
   try {

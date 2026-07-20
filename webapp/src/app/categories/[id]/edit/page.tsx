@@ -7,6 +7,8 @@ import { PageHeader } from "@/components/PageHeader";
 import { CategoryEditInline } from "@/components/CategoryEditInline";
 import { BackLink } from "@/components/BackLink";
 
+export const dynamic = "force-dynamic";
+
 async function getCategory(id: string) {
   let oid: ObjectId;
   try {
