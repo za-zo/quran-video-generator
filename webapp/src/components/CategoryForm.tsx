@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { FormField, useFormValidation, validators } from "./FormField";
+import { FormStatus } from "./FormStatus";
 
 type CategoryValues = {
   name: string;
@@ -15,15 +16,17 @@ export function CategoryForm({ category }: { category?: { _id: string; name: str
   const [name, setName] = useState(category?.name ?? "");
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
-  const { errors, validate, clearField } = useFormValidation<CategoryValues>({
+  const { errors, validate, clearField, setFieldError } = useFormValidation<CategoryValues>({
     name: validators.required("Name"),
   });
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setFormError(null);
+    setSuccess(null);
 
     const ok = validate({ name });
     if (!ok) return;
@@ -39,14 +42,28 @@ export function CategoryForm({ category }: { category?: { _id: string; name: str
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        setFormError(body.error || `request failed (${res.status})`);
+        const msg = body.error || `request failed (${res.status})`;
+        if (res.status === 409 && /already exists/i.test(msg)) {
+          setFieldError("name", msg);
+        } else {
+          setFormError(msg);
+        }
         setSubmitting(false);
         return;
       }
       if (isNew) {
+        // API returns { category: { _id, ... } } — read the id from there.
         const result = await res.json();
-        router.push(`/categories/${result.id}/videos`);
+        const newId = result?.category?._id ?? result?.category?.id;
+        if (!newId) {
+          // Fallback: redirect to the categories list rather than
+          // navigating to /categories/undefined/videos (which 404s).
+          router.push("/categories");
+        } else {
+          router.push(`/categories/${newId}/videos`);
+        }
       } else {
+        setSuccess(`Category "${name}" updated.`);
         router.refresh();
       }
     } catch (err) {
@@ -58,6 +75,7 @@ export function CategoryForm({ category }: { category?: { _id: string; name: str
 
   async function onDelete() {
     setSubmitting(true);
+    setFormError(null);
     try {
       const res = await fetch(`/api/categories/${category!._id}`, { method: "DELETE" });
       if (!res.ok) {
@@ -88,16 +106,20 @@ export function CategoryForm({ category }: { category?: { _id: string; name: str
             onChange={(e) => {
               setName(e.target.value);
               clearField("name");
+              if (success) setSuccess(null);
             }}
             className={`field-input ${errors.name ? "field-input-error" : ""}`}
           />
         </FormField>
 
-        {formError && (
-          <div className="text-sm text-failed hairline-t pt-4">
-            {formError}
-          </div>
-        )}
+        <FormStatus
+          success={success}
+          error={formError}
+          onDismiss={() => {
+            if (success) setSuccess(null);
+            if (formError) setFormError(null);
+          }}
+        />
 
         <div className="flex items-center gap-4 pt-2">
           <button type="submit" disabled={submitting} className="btn-primary">

@@ -58,6 +58,22 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
   }
 
   const db = await getDb();
+
+  // Pre-flight duplicate-name check. `audios.name` has a unique index,
+  // so without this check a duplicate would surface as a 500 from
+  // findOneAndUpdate — we want a clean 409 instead.
+  if (update.name !== undefined) {
+    const dup = await db
+      .collection("audios")
+      .findOne({ name: update.name, _id: { $ne: new ObjectId(params.id) } });
+    if (dup) {
+      return NextResponse.json(
+        { error: `an audio named '${update.name}' already exists` },
+        { status: 409 },
+      );
+    }
+  }
+
   const res = await db
     .collection("audios")
     .findOneAndUpdate(

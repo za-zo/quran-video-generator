@@ -7,6 +7,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { FormField, useFormValidation, validators } from "./FormField";
+import { FormStatus } from "./FormStatus";
 
 type AddVideoValues = {
   name: string;
@@ -21,8 +22,9 @@ export function AddVideoForm({ categoryId }: { categoryId: string }) {
   const [duration, setDuration] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
 
-  const { errors, validate, clearField } = useFormValidation<AddVideoValues>({
+  const { errors, validate, clearField, setFieldError } = useFormValidation<AddVideoValues>({
     name: validators.required("Name"),
     sourceUrl: (v) => {
       const r = validators.required("Source URL")(v);
@@ -35,6 +37,7 @@ export function AddVideoForm({ categoryId }: { categoryId: string }) {
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setFormError(null);
+    setSuccess(null);
 
     const ok = validate({ name, sourceUrl, duration });
     if (!ok) return;
@@ -58,10 +61,16 @@ export function AddVideoForm({ categoryId }: { categoryId: string }) {
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        setFormError(body.error || `request failed (${res.status})`);
+        const msg = body.error || `request failed (${res.status})`;
+        if (res.status === 409 && /already exists/i.test(msg)) {
+          setFieldError("name", msg);
+        } else {
+          setFormError(msg);
+        }
         setSubmitting(false);
         return;
       }
+      setSuccess(`Video "${name}" added.`);
       setName("");
       setSourceUrl("");
       setDuration("");
@@ -83,6 +92,7 @@ export function AddVideoForm({ categoryId }: { categoryId: string }) {
             onChange={(e) => {
               setName(e.target.value);
               clearField("name");
+              if (success) setSuccess(null);
             }}
             className={`field-input ${errors.name ? "field-input-error" : ""}`}
           />
@@ -95,6 +105,7 @@ export function AddVideoForm({ categoryId }: { categoryId: string }) {
               onChange={(e) => {
                 setSourceUrl(e.target.value);
                 clearField("sourceUrl");
+                if (success) setSuccess(null);
               }}
               placeholder="https://example.com/sea_0.mp4"
               className={`field-input ${errors.sourceUrl ? "field-input-error" : ""}`}
@@ -116,15 +127,25 @@ export function AddVideoForm({ categoryId }: { categoryId: string }) {
             onChange={(e) => {
               setDuration(e.target.value);
               clearField("duration");
+              if (success) setSuccess(null);
             }}
             className={`field-input ${errors.duration ? "field-input-error" : ""}`}
           />
         </FormField>
-        <div className="md:col-span-3 flex items-center gap-4 pt-7">
-          <button type="submit" disabled={submitting} className="btn-primary">
-            {submitting ? "Adding…" : "Add video"}
-          </button>
-          {formError && <span className="text-sm text-failed">{formError}</span>}
+        <div className="md:col-span-3 space-y-4 pt-1">
+          <FormStatus
+            success={success}
+            error={formError}
+            onDismiss={() => {
+              if (success) setSuccess(null);
+              if (formError) setFormError(null);
+            }}
+          />
+          <div className="pt-2">
+            <button type="submit" disabled={submitting} className="btn-primary">
+              {submitting ? "Adding…" : "Add video"}
+            </button>
+          </div>
         </div>
       </div>
     </form>

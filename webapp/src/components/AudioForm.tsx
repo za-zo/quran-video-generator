@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { FormField, useFormValidation, validators } from "./FormField";
+import { FormStatus } from "./FormStatus";
 
 type AudioValues = {
   name: string;
@@ -19,9 +20,10 @@ export function AudioForm({ audio }: { audio?: { _id: string; name: string; sour
   const [duration, setDuration] = useState(audio?.duration_seconds?.toString() ?? "");
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
-  const { errors, validate, clearField } = useFormValidation<AudioValues>({
+  const { errors, validate, clearField, setFieldError } = useFormValidation<AudioValues>({
     name: validators.required("Name"),
     sourceUrl: (v) => {
       const r = validators.required("Source URL")(v);
@@ -34,6 +36,7 @@ export function AudioForm({ audio }: { audio?: { _id: string; name: string; sour
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setFormError(null);
+    setSuccess(null);
 
     const ok = validate({ name, sourceUrl, duration });
     if (!ok) return;
@@ -57,13 +60,21 @@ export function AudioForm({ audio }: { audio?: { _id: string; name: string; sour
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        setFormError(body.error || `request failed (${res.status})`);
+        const msg = body.error || `request failed (${res.status})`;
+        // If the server flagged a duplicate-name, surface it on the name
+        // field rather than as a generic form error.
+        if (res.status === 409 && /already exists/i.test(msg)) {
+          setFieldError("name", msg);
+        } else {
+          setFormError(msg);
+        }
         setSubmitting(false);
         return;
       }
       if (isNew) {
         router.push("/audios");
       } else {
+        setSuccess(`Audio "${name}" updated.`);
         router.refresh();
       }
     } catch (err) {
@@ -75,6 +86,7 @@ export function AudioForm({ audio }: { audio?: { _id: string; name: string; sour
 
   async function onDelete() {
     setSubmitting(true);
+    setFormError(null);
     try {
       const res = await fetch(`/api/audios/${audio!._id}`, { method: "DELETE" });
       if (!res.ok) {
@@ -100,6 +112,7 @@ export function AudioForm({ audio }: { audio?: { _id: string; name: string; sour
             onChange={(e) => {
               setName(e.target.value);
               clearField("name");
+              if (success) setSuccess(null);
             }}
             className={`field-input ${errors.name ? "field-input-error" : ""}`}
           />
@@ -111,6 +124,7 @@ export function AudioForm({ audio }: { audio?: { _id: string; name: string; sour
             onChange={(e) => {
               setSourceUrl(e.target.value);
               clearField("sourceUrl");
+              if (success) setSuccess(null);
             }}
             className={`field-input ${errors.sourceUrl ? "field-input-error" : ""}`}
           />
@@ -129,16 +143,20 @@ export function AudioForm({ audio }: { audio?: { _id: string; name: string; sour
             onChange={(e) => {
               setDuration(e.target.value);
               clearField("duration");
+              if (success) setSuccess(null);
             }}
             className={`field-input w-48 ${errors.duration ? "field-input-error" : ""}`}
           />
         </FormField>
 
-        {formError && (
-          <div className="text-sm text-failed hairline-t pt-4">
-            {formError}
-          </div>
-        )}
+        <FormStatus
+          success={success}
+          error={formError}
+          onDismiss={() => {
+            if (success) setSuccess(null);
+            if (formError) setFormError(null);
+          }}
+        />
 
         <div className="flex items-center gap-4 pt-2">
           <button type="submit" disabled={submitting} className="btn-primary">

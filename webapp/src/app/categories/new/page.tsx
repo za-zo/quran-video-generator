@@ -4,8 +4,8 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import Link from "next/link";
 import { PageHeader } from "@/components/PageHeader";
-import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { FormField, useFormValidation, validators } from "@/components/FormField";
+import { FormStatus } from "@/components/FormStatus";
 
 type CategoryValues = {
   name: string;
@@ -17,7 +17,7 @@ export default function NewCategoryPage() {
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
-  const { errors, validate, clearField } = useFormValidation<CategoryValues>({
+  const { errors, validate, clearField, setFieldError } = useFormValidation<CategoryValues>({
     name: validators.required("Name"),
   });
 
@@ -37,12 +37,25 @@ export default function NewCategoryPage() {
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        setFormError(body.error || `request failed (${res.status})`);
+        const msg = body.error || `request failed (${res.status})`;
+        if (res.status === 409 && /already exists/i.test(msg)) {
+          setFieldError("name", msg);
+        } else {
+          setFormError(msg);
+        }
         setSubmitting(false);
         return;
       }
+      // API returns { category: { _id, ... } } — read the id from there.
+      // Previously this read `result.id` which is undefined, causing
+      // navigation to /categories/undefined/videos and a 404.
       const result = await res.json();
-      router.push(`/categories/${result.id}/videos`);
+      const newId = result?.category?._id ?? result?.category?.id;
+      if (!newId) {
+        router.push("/categories");
+      } else {
+        router.push(`/categories/${newId}/videos`);
+      }
       router.refresh();
     } catch (err) {
       setFormError(String(err));
@@ -77,11 +90,10 @@ export default function NewCategoryPage() {
             />
           </FormField>
 
-          {formError && (
-            <div className="text-sm text-failed hairline-t pt-4">
-              {formError}
-            </div>
-          )}
+          <FormStatus
+            error={formError}
+            onDismiss={() => formError && setFormError(null)}
+          />
 
           <div className="flex items-center gap-3 pt-2">
             <button type="submit" disabled={submitting} className="btn-primary">

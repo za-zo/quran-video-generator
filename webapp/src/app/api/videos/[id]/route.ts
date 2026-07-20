@@ -59,6 +59,38 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
   }
 
   const db = await getDb();
+
+  // Pre-flight duplicate-name check within the same category. The
+  // (category_id, name) pair has a unique index, so without this check
+  // a rename collision would surface as a 500 from findOneAndUpdate.
+  if (update.name !== undefined) {
+    // Determine the target category: either the new category_id (if
+    // being reassigned) or the video's current category.
+    let catOid: ObjectId;
+    if (update.category_id !== undefined) {
+      catOid = update.category_id as ObjectId;
+    } else {
+      const current = await db
+        .collection("videos")
+        .findOne({ _id: new ObjectId(params.id) }, { projection: { category_id: 1 } });
+      if (!current) return NextResponse.json({ error: "not found" }, { status: 404 });
+      catOid = current.category_id as ObjectId;
+    }
+    const dup = await db
+      .collection("videos")
+      .findOne({
+        category_id: catOid,
+        name: update.name,
+        _id: { $ne: new ObjectId(params.id) },
+      });
+    if (dup) {
+      return NextResponse.json(
+        { error: `a video named '${update.name}' already exists in this category` },
+        { status: 409 },
+      );
+    }
+  }
+
   const res = await db
     .collection("videos")
     .findOneAndUpdate(

@@ -30,6 +30,20 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
     return NextResponse.json({ error: "name cannot be empty" }, { status: 400 });
   }
   const db = await getDb();
+
+  // Pre-flight duplicate-name check. `categories.name` has a unique
+  // index, so without this check a duplicate would surface as a 500
+  // from findOneAndUpdate.
+  const dup = await db
+    .collection("categories")
+    .findOne({ name, _id: { $ne: new ObjectId(params.id) } });
+  if (dup) {
+    return NextResponse.json(
+      { error: `a category named '${name}' already exists` },
+      { status: 409 },
+    );
+  }
+
   const res = await db
     .collection("categories")
     .findOneAndUpdate(

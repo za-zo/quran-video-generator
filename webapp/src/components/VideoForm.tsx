@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { FormField, useFormValidation, validators } from "./FormField";
+import { FormStatus } from "./FormStatus";
 
 type VideoValues = {
   name: string;
@@ -27,9 +28,10 @@ export function VideoForm({
   const [categoryId, setCategoryId] = useState(video?.category_id ?? "");
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
-  const { errors, validate, clearField } = useFormValidation<VideoValues>({
+  const { errors, validate, clearField, setFieldError } = useFormValidation<VideoValues>({
     name: validators.required("Name"),
     sourceUrl: (v) => {
       const r = validators.required("Source URL")(v);
@@ -48,6 +50,7 @@ export function VideoForm({
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setFormError(null);
+    setSuccess(null);
 
     const ok = validate({ name, sourceUrl, duration, categoryId });
     if (!ok) return;
@@ -72,13 +75,23 @@ export function VideoForm({
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        setFormError(body.error || `request failed (${res.status})`);
+        const msg = body.error || `request failed (${res.status})`;
+        if (res.status === 409 && /already exists/i.test(msg)) {
+          setFieldError("name", msg);
+        } else {
+          setFormError(msg);
+        }
         setSubmitting(false);
         return;
       }
       if (isNew) {
-        router.push(`/categories/${categoryId}/videos`);
+        // Use the server-returned category_id so navigation lands on
+        // the right category even if the user changed it mid-edit.
+        const result = await res.json();
+        const finalCatId = result?.video?.category_id ?? categoryId;
+        router.push(`/categories/${finalCatId}/videos`);
       } else {
+        setSuccess(`Video "${name}" updated.`);
         router.refresh();
       }
     } catch (err) {
@@ -90,6 +103,7 @@ export function VideoForm({
 
   async function onDelete() {
     setSubmitting(true);
+    setFormError(null);
     try {
       const res = await fetch(`/api/videos/${video!._id}`, { method: "DELETE" });
       if (!res.ok) {
@@ -116,6 +130,7 @@ export function VideoForm({
               onChange={(e) => {
                 setName(e.target.value);
                 clearField("name");
+                if (success) setSuccess(null);
               }}
               className={`field-input ${errors.name ? "field-input-error" : ""}`}
             />
@@ -127,6 +142,7 @@ export function VideoForm({
                 onChange={(e) => {
                   setCategoryId(e.target.value);
                   clearField("categoryId");
+                  if (success) setSuccess(null);
                 }}
                 className={`field-input ${errors.categoryId ? "field-input-error" : ""}`}
               >
@@ -147,6 +163,7 @@ export function VideoForm({
             onChange={(e) => {
               setSourceUrl(e.target.value);
               clearField("sourceUrl");
+              if (success) setSuccess(null);
             }}
             className={`field-input ${errors.sourceUrl ? "field-input-error" : ""}`}
           />
@@ -165,16 +182,20 @@ export function VideoForm({
             onChange={(e) => {
               setDuration(e.target.value);
               clearField("duration");
+              if (success) setSuccess(null);
             }}
             className={`field-input w-48 ${errors.duration ? "field-input-error" : ""}`}
           />
         </FormField>
 
-        {formError && (
-          <div className="text-sm text-failed hairline-t pt-4">
-            {formError}
-          </div>
-        )}
+        <FormStatus
+          success={success}
+          error={formError}
+          onDismiss={() => {
+            if (success) setSuccess(null);
+            if (formError) setFormError(null);
+          }}
+        />
 
         <div className="flex items-center gap-4 pt-2">
           <button type="submit" disabled={submitting} className="btn-primary">
