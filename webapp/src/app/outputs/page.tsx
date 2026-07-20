@@ -62,13 +62,19 @@ async function getOutputs(page: number, sort: string, dir: "asc" | "desc") {
   const catDocs = catIds.length
     ? await db.collection("categories").find({ _id: { $in: catIds } }).toArray()
     : [];
-  const catMap = new Map(catDocs.map((c: any) => [String(c._id), c.name ?? null]));
+  const catMap = new Map(
+    catDocs.map((c: any) => [String(c._id), { name: c.name ?? null, _id: String(c._id) }]),
+  );
 
-  const enriched = docs.map((d: any) => ({
-    ...stringifyIds(d),
-    _audio_name: audioMap.get(String(d.audio_id)) ?? "[deleted]",
-    _category_name: catMap.get(String(d.selected_category_id)) ?? null,
-  }));
+  const enriched = docs.map((d: any) => {
+    const cat = catMap.get(String(d.selected_category_id));
+    return {
+      ...stringifyIds(d),
+      _audio_name: audioMap.get(String(d.audio_id)) ?? "[deleted]",
+      _category_name: cat?.name ?? null,
+      _category_id: cat?._id ?? null,
+    };
+  });
 
   return {
     outputs: enriched,
@@ -145,10 +151,21 @@ export default async function OutputsPage({
                   </div>
 
                   <div className="flex items-center justify-between text-2xs text-mute font-mono">
-                    <span className="truncate">
-                      {slice._category_name ?? "—"}
-                      {" · "}
-                      {slice.output ? `${slice.output.width}×${slice.output.height}` : "—"}
+                    <span className="truncate flex items-center gap-1">
+                      {slice._category_id ? (
+                        <Link
+                          href={`/categories/${slice._category_id}/videos`}
+                          className="quiet-link hover:text-accent transition-colors"
+                        >
+                          {slice._category_name}
+                        </Link>
+                      ) : (
+                        <span>{slice._category_name ?? "—"}</span>
+                      )}
+                      <span className="text-mute/60">·</span>
+                      <span>
+                        {slice.output ? `${slice.output.width}×${slice.output.height}` : "—"}
+                      </span>
                     </span>
                     <span className="shrink-0 ml-2">{formatRelative(slice.created_at)}</span>
                   </div>

@@ -27,9 +27,21 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 
-type Counts = { audios: number; categories: number; videos: number; execs: number };
+type Counts = {
+  audios: number;
+  categories: number;
+  videos: number;
+  execs: number;
+  outputs: number;
+};
 
-const EMPTY_COUNTS: Counts = { audios: 0, categories: 0, videos: 0, execs: 0 };
+const EMPTY_COUNTS: Counts = {
+  audios: 0,
+  categories: 0,
+  videos: 0,
+  execs: 0,
+  outputs: 0,
+};
 
 export function Nav() {
   const pathname = usePathname();
@@ -55,7 +67,7 @@ export function Nav() {
     { href: "/audios", label: "Audios", count: counts.audios, eyebrow: "MEDIA" },
     { href: "/categories", label: "Categories", count: counts.categories, eyebrow: "MEDIA" },
     { href: "/executions", label: "Executions", count: counts.execs, eyebrow: "PIPELINE" },
-    { href: "/outputs", label: "Outputs", count: null, eyebrow: "GALLERY" },
+    { href: "/outputs", label: "Outputs", count: counts.outputs, eyebrow: "GALLERY" },
   ];
 
   return (

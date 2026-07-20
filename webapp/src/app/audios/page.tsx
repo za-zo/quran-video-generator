@@ -128,16 +128,10 @@ export default async function AudiosPage({
               </div>
               <ul>
                 {audios.map((audio: any, i: number) => (
-                  <li
-                    key={audio._id}
-                    className="hairline-b-soft last:border-b-0 relative hover:bg-paperRaised/50 transition-colors"
-                  >
-                    {/* Stretched link: covers the whole row for navigation.
-                        The source_url <a> below sits above it via z-10. */}
+                  <li key={audio._id} className="hairline-b-soft last:border-b-0">
                     <Link
                       href={`/audios/${audio._id}/edit`}
-                      className="grid grid-cols-12 gap-4 px-2 py-4 items-center"
-                      aria-label={`Edit ${audio.name}`}
+                      className="grid grid-cols-12 gap-4 px-2 py-4 items-center hover:bg-paperRaised/50 transition-colors"
                     >
                       <div className="col-span-1 num text-2xs text-mute">
                         {String((page - 1) * PAGE_SIZE + i + 1).padStart(3, "0")}
@@ -145,18 +139,8 @@ export default async function AudiosPage({
                       <div className="col-span-3 truncate text-sm font-medium text-ink">
                         {audio.name}
                       </div>
-                      <div className="col-span-3 truncate text-xs text-mute font-mono flex items-center gap-1.5">
-                        <span className="truncate">{truncateUrl(audio.source_url, 45)}</span>
-                        <a
-                          href={audio.source_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          aria-label="Open audio in new tab"
-                          title="Open audio in new tab"
-                          className="relative z-10 shrink-0 text-mute hover:text-accent transition-colors"
-                        >
-                          ↗
-                        </a>
+                      <div className="col-span-3 truncate text-xs text-mute font-mono">
+                        {truncateUrl(audio.source_url, 50)}
                       </div>
                       <div className="col-span-2 num text-sm text-inkSoft">
                         {formatDuration(audio.duration_seconds)}

@@ -16,16 +16,20 @@ import { getDb } from "@/lib/mongo";
 export async function GET() {
   try {
     const db = await getDb();
-    const [audios, categories, videos, execs] = await Promise.all([
+    const [audios, categories, videos, execs, outputs] = await Promise.all([
       db.collection("audios").countDocuments(),
       db.collection("categories").countDocuments(),
       db.collection("videos").countDocuments(),
       db.collection("executions").countDocuments(),
+      // Outputs = successful slices that have an output attached
+      db
+        .collection("execution_slices")
+        .countDocuments({ status: "success", output: { $ne: null } }),
     ]);
-    return NextResponse.json({ audios, categories, videos, execs });
+    return NextResponse.json({ audios, categories, videos, execs, outputs });
   } catch {
     return NextResponse.json(
-      { audios: 0, categories: 0, videos: 0, execs: 0 },
+      { audios: 0, categories: 0, videos: 0, execs: 0, outputs: 0 },
       { status: 200 },
     );
   }

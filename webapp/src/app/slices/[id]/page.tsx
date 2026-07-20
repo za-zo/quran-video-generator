@@ -140,11 +140,11 @@ export default async function SliceDetailPage({
                 Open in new tab ↗
               </a>
             </div>
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-              {/* Video player — constrained to max-w-md so it doesn't
-                  dominate the page. The full URL + open-in-new-tab
-                  link live in the details column. */}
-              <div className="max-w-md">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+              {/* Video player — constrained to max-w-xs (320px) so it
+                  doesn't dominate the page. The full URL + open-in-new-
+                  tab link live in the details column. */}
+              <div className="lg:col-span-1 max-w-xs">
                 <video
                   src={slice.output.cloudinary_url}
                   controls
@@ -152,7 +152,7 @@ export default async function SliceDetailPage({
                   preload="metadata"
                 />
               </div>
-              <div className="space-y-4 text-sm">
+              <div className="lg:col-span-2 space-y-4 text-sm">
                 <Detail label="Duration" value={formatDuration(slice.output.duration_seconds)} />
                 <Detail label="Resolution" value={`${slice.output.width}×${slice.output.height}`} />
                 <Detail

@@ -17,7 +17,6 @@ const SORT_OPTIONS: SortOption[] = [
   { label: "Slices", value: "slices" },
   { label: "Success", value: "success" },
   { label: "Failed", value: "failed" },
-  { label: "Duration", value: "duration" },
   { label: "Run ID", value: "run" },
 ];
 
@@ -32,13 +31,6 @@ function buildSortSpec(sort: string, dir: "asc" | "desc"): Record<string, 1 | -1
       return { success_count: d, _id: 1 };
     case "failed":
       return { failed_count: d, _id: 1 };
-    case "duration":
-      // Duration isn't stored directly; approximate by created_at as a
-      // proxy when sorted ascending and completed_at descending — but
-      // since we don't have a computed field, fall back to created_at
-      // ascending (oldest first) which is the most useful "long-running
-      // first" inversion.
-      return { created_at: d, _id: 1 };
     case "run":
       return { github_run_id: d, _id: 1 };
     case "created":
@@ -136,12 +128,11 @@ export default async function ExecutionsPage({
             <div>
               <div className="grid grid-cols-12 gap-4 px-2 py-3 hairline-b">
                 <div className="col-span-2 eyebrow">STATUS</div>
-                <div className="col-span-2 eyebrow">GITHUB RUN</div>
+                <div className="col-span-3 eyebrow">GITHUB RUN</div>
                 <div className="col-span-2 eyebrow">SLICES</div>
-                <div className="col-span-1 eyebrow text-right">SUCCESS</div>
-                <div className="col-span-1 eyebrow text-right">FAILED</div>
-                <div className="col-span-2 eyebrow">DURATION</div>
-                <div className="col-span-2 eyebrow text-right">CREATED</div>
+                <div className="col-span-2 eyebrow text-right">SUCCESS</div>
+                <div className="col-span-2 eyebrow text-right">FAILED</div>
+                <div className="col-span-1 eyebrow text-right">CREATED</div>
               </div>
               <ul>
                 {runs.map((run: any) => (
@@ -153,26 +144,19 @@ export default async function ExecutionsPage({
                       <div className="col-span-2">
                         <StatusBadge status={run.status} />
                       </div>
-                      <div className="col-span-2 num text-xs text-mute truncate">
+                      <div className="col-span-3 num text-xs text-mute truncate">
                         {run.github_run_id ?? "—"}
                       </div>
                       <div className="col-span-2 num text-sm text-inkSoft">
                         {run.total_slices ?? "—"}
                       </div>
-                      <div className="col-span-1 num text-sm text-success text-right">
+                      <div className="col-span-2 num text-sm text-success text-right">
                         {run.success_count ?? 0}
                       </div>
-                      <div className="col-span-1 num text-sm text-failed text-right">
+                      <div className="col-span-2 num text-sm text-failed text-right">
                         {run.failed_count ?? 0}
                       </div>
-                      <div className="col-span-2 num text-xs text-inkSoft">
-                        {run.completed_at && run.created_at
-                          ? formatRelative(new Date(run.completed_at).getTime() - new Date(run.created_at).getTime() > 0
-                              ? (new Date(run.completed_at).getTime() - new Date(run.created_at).getTime()) / 1000
-                              : 0)
-                          : run.status === "running" ? "in progress…" : "—"}
-                      </div>
-                      <div className="col-span-2 num text-2xs text-mute text-right">
+                      <div className="col-span-1 num text-2xs text-mute text-right">
                         {formatRelative(run.created_at)}
                       </div>
                     </Link>
