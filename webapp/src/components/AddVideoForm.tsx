@@ -74,6 +74,10 @@ export function AddVideoForm({ categoryId }: { categoryId: string }) {
       setName("");
       setSourceUrl("");
       setDuration("");
+      // Navigate to the videos list rather than refreshing in place —
+      // the form now lives on its own /new page, so users expect to
+      // land back on the list after a successful add.
+      router.push(`/categories/${categoryId}/videos`);
       router.refresh();
     } catch (err) {
       setFormError(String(err));

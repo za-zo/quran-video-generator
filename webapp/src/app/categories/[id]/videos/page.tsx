@@ -83,12 +83,20 @@ export default async function CategoryVideosPage({
         eyebrow={`MEDIA / ${data.category.name.toUpperCase()}`}
         title={`Videos in "${data.category.name}"`}
         actions={
-          <Link
-            href={`/categories/${data.category._id}/edit`}
-            className="btn-ghost"
-          >
-            Edit category
-          </Link>
+          <div className="flex items-center gap-3">
+            <Link
+              href={`/categories/${data.category._id}/videos/new`}
+              className="btn-primary"
+            >
+              + Add video
+            </Link>
+            <Link
+              href={`/categories/${data.category._id}/edit`}
+              className="btn-ghost"
+            >
+              Edit category
+            </Link>
+          </div>
         }
         meta="Background videos for this scenery category. The pipeline picks from these when this category is selected. Click a row to edit or delete."
       />
@@ -115,9 +123,25 @@ export default async function CategoryVideosPage({
 
         {/* List */}
         {data.videos.length === 0 ? (
-          <p className="text-mute italic">
-            {search ? "No videos match your search." : "No videos in this category yet."}
-          </p>
+          <div className="hairline-t pt-12 text-center">
+            <div className="eyebrow mb-3">EMPTY</div>
+            <h2 className="font-serif text-3xl mb-3">
+              {search ? "No videos match your search" : "No videos in this category yet"}
+            </h2>
+            <p className="text-mute text-sm mb-8 max-w-md mx-auto">
+              {search
+                ? "Try a different search term."
+                : "Add a background video for the pipeline to draw from when this category is selected."}
+            </p>
+            {!search && (
+              <Link
+                href={`/categories/${data.category._id}/videos/new`}
+                className="btn-primary inline-flex"
+              >
+                Add your first video
+              </Link>
+            )}
+          </div>
         ) : (
           <section>
             <div>
