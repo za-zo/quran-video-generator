@@ -66,6 +66,7 @@ export function Nav() {
     { href: "/", label: "Dashboard", count: null, eyebrow: "OVERVIEW" },
     { href: "/audios", label: "Audios", count: counts.audios, eyebrow: "MEDIA" },
     { href: "/categories", label: "Categories", count: counts.categories, eyebrow: "MEDIA" },
+    { href: "/videos", label: "Videos", count: counts.videos, eyebrow: "MEDIA" },
     { href: "/executions", label: "Executions", count: counts.execs, eyebrow: "PIPELINE" },
     { href: "/outputs", label: "Outputs", count: counts.outputs, eyebrow: "GALLERY" },
   ];
