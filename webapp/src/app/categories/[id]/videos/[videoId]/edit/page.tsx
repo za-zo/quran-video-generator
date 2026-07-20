@@ -5,6 +5,7 @@ import { stringifyIds } from "@/lib/types";
 import { PageHeader } from "@/components/PageHeader";
 import { VideoForm } from "@/components/VideoForm";
 import { BackLink } from "@/components/BackLink";
+import { truncateName } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
@@ -56,8 +57,8 @@ export default async function EditVideoPage({
   return (
     <>
       <PageHeader
-        eyebrow={`MEDIA / ${categoryName?.toUpperCase() ?? "CATEGORY"} / VIDEOS`}
-        title={`Edit: ${video.name}`}
+        eyebrow={`MEDIA / ${truncateName(categoryName?.toUpperCase() ?? "CATEGORY", 40)} / VIDEOS`}
+        title={`Edit: ${truncateName(video.name, 50)}`}
         meta="Update the source URL or duration."
       />
       <div className="px-8 py-10 max-w-2xl">

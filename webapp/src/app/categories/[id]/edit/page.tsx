@@ -6,6 +6,7 @@ import { stringifyIds } from "@/lib/types";
 import { PageHeader } from "@/components/PageHeader";
 import { CategoryEditInline } from "@/components/CategoryEditInline";
 import { BackLink } from "@/components/BackLink";
+import { truncateName } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
@@ -42,7 +43,7 @@ export default async function EditCategoryPage({
     <>
       <PageHeader
         eyebrow="MEDIA / CATEGORIES"
-        title={`Edit: ${cat.name}`}
+        title={`Edit: ${truncateName(cat.name, 50)}`}
         meta={
           cat.video_count > 0
             ? `This category has ${cat.video_count} video(s). Delete or reassign them before deleting the category.`

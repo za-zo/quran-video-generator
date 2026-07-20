@@ -5,6 +5,7 @@ import { stringifyIds } from "@/lib/types";
 import { PageHeader } from "@/components/PageHeader";
 import { AudioForm } from "@/components/AudioForm";
 import { BackLink } from "@/components/BackLink";
+import { truncateName } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
@@ -39,7 +40,7 @@ export default async function EditAudioPage({
     <>
       <PageHeader
         eyebrow="MEDIA / AUDIOS"
-        title={`Edit: ${audio.name}`}
+        title={`Edit: ${truncateName(audio.name, 50)}`}
         meta="Update the source URL or duration."
       />
       <div className="px-8 py-10 max-w-2xl">

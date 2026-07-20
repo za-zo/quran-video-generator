@@ -55,7 +55,9 @@ async function getOutputs(page: number, sort: string, dir: "asc" | "desc") {
   const audioDocs = audioIds.length
     ? await db.collection("audios").find({ _id: { $in: audioIds } }).toArray()
     : [];
-  const audioMap = new Map(audioDocs.map((a: any) => [String(a._id), a.name ?? "[deleted]"]));
+  const audioMap = new Map(
+    audioDocs.map((a: any) => [String(a._id), { name: a.name ?? "[deleted]", _id: String(a._id) }]),
+  );
 
   // Lookup category names
   const catIds = [...new Set(docs.map((d: any) => d.selected_category_id).filter(Boolean))];
@@ -67,10 +69,12 @@ async function getOutputs(page: number, sort: string, dir: "asc" | "desc") {
   );
 
   const enriched = docs.map((d: any) => {
+    const audio = audioMap.get(String(d.audio_id));
     const cat = catMap.get(String(d.selected_category_id));
     return {
       ...stringifyIds(d),
-      _audio_name: audioMap.get(String(d.audio_id)) ?? "[deleted]",
+      _audio_name: audio?.name ?? "[deleted]",
+      _audio_id: audio?._id ?? null,
       _category_name: cat?.name ?? null,
       _category_id: cat?._id ?? null,
     };
@@ -138,40 +142,57 @@ export default async function OutputsPage({
                   </div>
 
                   {/* Meta */}
-                  <div className="flex items-baseline justify-between mb-2">
-                    <Link
-                      href={`/slices/${slice._id}`}
-                      className="text-sm font-medium text-ink hover:text-accent transition-colors truncate flex-1 mr-2"
-                    >
-                      {slice._audio_name}
-                    </Link>
+                  <div className="flex items-baseline justify-between mb-2 gap-2">
+                    {slice._audio_id ? (
+                      <Link
+                        href={`/audios/${slice._audio_id}/edit`}
+                        className="text-sm font-medium text-ink hover:text-accent transition-colors truncate flex-1 min-w-0"
+                        title={slice._audio_name}
+                      >
+                        {slice._audio_name}
+                      </Link>
+                    ) : (
+                      <span
+                        className="text-sm font-medium text-mute truncate flex-1 min-w-0"
+                        title={slice._audio_name}
+                      >
+                        {slice._audio_name}
+                      </span>
+                    )}
                     <span className="num text-2xs text-mute shrink-0">
                       {formatDuration(slice.output?.duration_seconds)}
                     </span>
                   </div>
 
-                  <div className="flex items-center justify-between text-2xs text-mute font-mono">
-                    <span className="truncate flex items-center gap-1">
+                  <div className="flex items-center justify-between text-2xs text-mute font-mono gap-2">
+                    <span className="truncate flex items-center gap-1 min-w-0">
                       {slice._category_id ? (
                         <Link
                           href={`/categories/${slice._category_id}/videos`}
-                          className="quiet-link hover:text-accent transition-colors"
+                          className="quiet-link hover:text-accent transition-colors truncate"
+                          title={slice._category_name ?? undefined}
                         >
                           {slice._category_name}
                         </Link>
                       ) : (
-                        <span>{slice._category_name ?? "—"}</span>
+                        <span className="truncate">{slice._category_name ?? "—"}</span>
                       )}
-                      <span className="text-mute/60">·</span>
-                      <span>
+                      <span className="text-mute/60 shrink-0">·</span>
+                      <span className="shrink-0">
                         {slice.output ? `${slice.output.width}×${slice.output.height}` : "—"}
                       </span>
                     </span>
-                    <span className="shrink-0 ml-2">{formatRelative(slice.created_at)}</span>
+                    <span className="shrink-0">{formatRelative(slice.created_at)}</span>
                   </div>
 
-                  {/* Open in new tab link */}
-                  <div className="mt-3">
+                  {/* Links: open slice + open output in new tab */}
+                  <div className="mt-3 flex items-center gap-4 flex-wrap">
+                    <Link
+                      href={`/slices/${slice._id}`}
+                      className="quiet-link text-2xs"
+                    >
+                      Open slice →
+                    </Link>
                     <a
                       href={slice.output?.cloudinary_url}
                       target="_blank"

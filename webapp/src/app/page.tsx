@@ -242,7 +242,7 @@ export default async function DashboardPage() {
                     <div className="col-span-2">
                       <StatusBadge status={slice.status} />
                     </div>
-                    <div className="col-span-4 truncate">
+                    <div className="col-span-4 truncate" title={slice.audio_name}>
                       <span className="text-sm font-medium">{slice.audio_name}</span>
                     </div>
                     <div className="col-span-3 num text-xs text-mute">
@@ -283,7 +283,7 @@ function BalanceRow({
       <div className="min-w-0">
         <div className="eyebrow mb-1">{label}</div>
         {name ? (
-          <div className="text-base truncate">
+          <div className="text-base truncate" title={name}>
             {href ? (
               <Link href={href} className="quiet-link">
                 {name}

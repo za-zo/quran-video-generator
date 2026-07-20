@@ -195,15 +195,20 @@ export default async function SliceDetailPage({
 
         {/* Source audio + category */}
         <section className="grid grid-cols-1 md:grid-cols-2 gap-12">
-          <div>
+          <div className="min-w-0">
             <div className="eyebrow mb-4 hairline-b pb-3">SOURCE AUDIO</div>
             {slice._audio ? (
               <div className="block">
                 <Link
                   href={`/audios/${slice._audio._id}/edit`}
-                  className="block hover:bg-paperRaised/50 transition-colors -mx-2 px-2 py-2"
+                  className="block hover:bg-paperRaised/50 transition-colors -mx-2 px-2 py-2 min-w-0"
                 >
-                  <div className="text-sm font-medium text-ink">{slice._audio.name}</div>
+                  <div
+                    className="text-sm font-medium text-ink truncate"
+                    title={slice._audio.name}
+                  >
+                    {slice._audio.name}
+                  </div>
                   <div className="num text-xs text-mute mt-1">
                     {formatDuration(slice._audio.duration_seconds)} total
                   </div>
@@ -228,14 +233,19 @@ export default async function SliceDetailPage({
               </div>
             )}
           </div>
-          <div>
+          <div className="min-w-0">
             <div className="eyebrow mb-4 hairline-b pb-3">SELECTED CATEGORY</div>
             {slice._category ? (
               <Link
                 href={`/categories/${slice._category._id}/videos`}
-                className="block hover:bg-paperRaised/50 transition-colors -mx-2 px-2 py-2"
+                className="block hover:bg-paperRaised/50 transition-colors -mx-2 px-2 py-2 min-w-0"
               >
-                <div className="font-serif text-lg text-ink">{slice._category.name}</div>
+                <div
+                  className="font-serif text-lg text-ink truncate"
+                  title={slice._category.name}
+                >
+                  {slice._category.name}
+                </div>
                 <div className="text-2xs text-mute mt-1">
                   → view videos in this category
                 </div>
@@ -278,8 +288,16 @@ export default async function SliceDetailPage({
                       </span>
                     </div>
                   </div>
-                  <div className="text-sm font-medium text-ink truncate">{v.name}</div>
-                  <div className="font-mono text-2xs text-mute mt-1 truncate">
+                  <div
+                    className="text-sm font-medium text-ink truncate"
+                    title={v.name}
+                  >
+                    {v.name}
+                  </div>
+                  <div
+                    className="font-mono text-2xs text-mute mt-1 truncate"
+                    title={v.source_url}
+                  >
                     {truncateUrl(v.source_url, 50)}
                   </div>
                 </div>

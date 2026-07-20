@@ -7,7 +7,7 @@ import { getDb } from "@/lib/mongo";
 import { stringifyIds } from "@/lib/types";
 import { PageHeader } from "@/components/PageHeader";
 import { SortBar, type SortOption } from "@/components/SortBar";
-import { formatDuration, truncateUrl } from "@/lib/format";
+import { formatDuration, truncateUrl, truncateName } from "@/lib/format";
 
 const SORT_OPTIONS: SortOption[] = [
   { label: "Name", value: "name" },
@@ -80,8 +80,8 @@ export default async function CategoryVideosPage({
   return (
     <>
       <PageHeader
-        eyebrow={`MEDIA / ${data.category.name.toUpperCase()}`}
-        title={`Videos in "${data.category.name}"`}
+        eyebrow={`MEDIA / ${truncateName(data.category.name.toUpperCase(), 40)}`}
+        title={`Videos in "${truncateName(data.category.name, 50)}"`}
         actions={
           <div className="flex items-center gap-3">
             <Link
@@ -162,10 +162,16 @@ export default async function CategoryVideosPage({
                       <div className="col-span-1 num text-2xs text-mute">
                         {String(i + 1).padStart(3, "0")}
                       </div>
-                      <div className="col-span-4 truncate text-sm font-medium text-ink">
+                      <div
+                        className="col-span-4 truncate text-sm font-medium text-ink"
+                        title={v.name}
+                      >
                         {v.name}
                       </div>
-                      <div className="col-span-4 truncate text-xs text-mute font-mono">
+                      <div
+                        className="col-span-4 truncate text-xs text-mute font-mono"
+                        title={v.source_url}
+                      >
                         {truncateUrl(v.source_url, 60)}
                       </div>
                       <div className="col-span-2 num text-sm text-inkSoft">

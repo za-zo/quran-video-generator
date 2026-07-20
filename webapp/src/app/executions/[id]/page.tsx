@@ -276,10 +276,16 @@ export default async function ExecutionDetailPage({
                         <div className="col-span-1">
                           <StatusBadge status={slice.status} />
                         </div>
-                        <div className="col-span-3 truncate text-sm font-medium text-ink">
+                        <div
+                          className="col-span-3 truncate text-sm font-medium text-ink"
+                          title={slice._audio_name}
+                        >
                           {slice._audio_name}
                         </div>
-                        <div className="col-span-2 truncate text-sm text-mute">
+                        <div
+                          className="col-span-2 truncate text-sm text-mute"
+                          title={slice._category_name ?? undefined}
+                        >
                           {slice._category_name ?? "—"}
                         </div>
                         <div className="col-span-2 num text-xs text-mute">

@@ -42,10 +42,13 @@ export function SliceTimeline({
     <figure className="my-6">
       {/* Header: title + audio reference */}
       <div className="flex items-baseline justify-between hairline-b pb-3 mb-6">
-        <div>
+        <div className="min-w-0">
           <div className="eyebrow mb-2">SLICE WITHIN SOURCE AUDIO</div>
           {audioName && (
-            <div className="font-serif text-lg italic text-mute">
+            <div
+              className="font-serif text-lg italic text-mute truncate"
+              title={audioName}
+            >
               {audioName}
             </div>
           )}

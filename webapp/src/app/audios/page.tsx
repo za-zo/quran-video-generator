@@ -136,10 +136,16 @@ export default async function AudiosPage({
                       <div className="col-span-1 num text-2xs text-mute">
                         {String((page - 1) * PAGE_SIZE + i + 1).padStart(3, "0")}
                       </div>
-                      <div className="col-span-3 truncate text-sm font-medium text-ink">
+                      <div
+                        className="col-span-3 truncate text-sm font-medium text-ink"
+                        title={audio.name}
+                      >
                         {audio.name}
                       </div>
-                      <div className="col-span-3 truncate text-xs text-mute font-mono">
+                      <div
+                        className="col-span-3 truncate text-xs text-mute font-mono"
+                        title={audio.source_url}
+                      >
                         {truncateUrl(audio.source_url, 50)}
                       </div>
                       <div className="col-span-2 num text-sm text-inkSoft">

@@ -4,6 +4,7 @@ import { getDb } from "@/lib/mongo";
 import { PageHeader } from "@/components/PageHeader";
 import { AddVideoForm } from "@/components/AddVideoForm";
 import { BackLink } from "@/components/BackLink";
+import { truncateName } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
@@ -34,9 +35,9 @@ export default async function NewVideoPage({
   return (
     <>
       <PageHeader
-        eyebrow={`MEDIA / ${cat.name.toUpperCase()} / VIDEOS`}
+        eyebrow={`MEDIA / ${truncateName(cat.name.toUpperCase(), 40)} / VIDEOS`}
         title="Add video"
-        meta={`Register a background video for the "${cat.name}" category. The pipeline picks from these when this category is selected.`}
+        meta={`Register a background video for the "${truncateName(cat.name, 40)}" category. The pipeline picks from these when this category is selected.`}
       />
       <div className="px-8 py-10 max-w-2xl">
         <AddVideoForm categoryId={cat._id} />

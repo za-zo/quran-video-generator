@@ -150,10 +150,13 @@ export default async function CategoriesPage({
               <Link
                 key={cat._id}
                 href={`/categories/${cat._id}/videos`}
-                className="hairline-t pt-5 hover:bg-paperRaised/30 transition-colors -mx-2 px-2 pb-2 group"
+                className="hairline-t pt-5 hover:bg-paperRaised/30 transition-colors -mx-2 px-2 pb-2 group min-w-0"
               >
                 <div className="eyebrow mb-3">CATEGORY</div>
-                <div className="font-serif text-3xl mb-5 group-hover:text-accent transition-colors tracking-tight">
+                <div
+                  className="font-serif text-3xl mb-5 group-hover:text-accent transition-colors tracking-tight truncate"
+                  title={cat.name}
+                >
                   {cat.name}
                 </div>
                 <div className="grid grid-cols-2 gap-4">

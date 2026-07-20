@@ -144,7 +144,10 @@ export default async function ExecutionsPage({
                       <div className="col-span-2">
                         <StatusBadge status={run.status} />
                       </div>
-                      <div className="col-span-3 num text-xs text-mute truncate">
+                      <div
+                        className="col-span-3 num text-xs text-mute truncate"
+                        title={run.github_run_id ?? undefined}
+                      >
                         {run.github_run_id ?? "—"}
                       </div>
                       <div className="col-span-2 num text-sm text-inkSoft">

@@ -58,6 +58,21 @@ export function truncateUrl(url: string, max = 60): string {
   return url.slice(0, max - 1) + "…";
 }
 
+/**
+ * Truncate a display name to a maximum number of characters, appending
+ * an ellipsis if truncated. Used in PageHeader titles, eyebrows, and
+ * meta strings where CSS `truncate` doesn't apply (because the value
+ * is interpolated into a string, not rendered as a block element).
+ *
+ * The default of 60 chars is calibrated for a 4xl serif title at the
+ * page header width — longer than that and the title wraps awkwardly.
+ */
+export function truncateName(name: string | null | undefined, max = 60): string {
+  if (!name) return "—";
+  if (name.length <= max) return name;
+  return name.slice(0, max - 1) + "…";
+}
+
 export function isValidUrl(s: string): boolean {
   try {
     const u = new URL(s);
