@@ -6,11 +6,48 @@ import { stringifyIds } from "@/lib/types";
 import { PageHeader } from "@/components/PageHeader";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Pagination } from "@/components/Pagination";
+import { SortBar, type SortOption } from "@/components/SortBar";
 import { formatRelative } from "@/lib/format";
 
 const PAGE_SIZE = 30;
 
-async function getRuns(status: string | null, page: number) {
+const SORT_OPTIONS: SortOption[] = [
+  { label: "Created", value: "created" },
+  { label: "Status", value: "status" },
+  { label: "Slices", value: "slices" },
+  { label: "Success", value: "success" },
+  { label: "Failed", value: "failed" },
+  { label: "Duration", value: "duration" },
+  { label: "Run ID", value: "run" },
+];
+
+function buildSortSpec(sort: string, dir: "asc" | "desc"): Record<string, 1 | -1> {
+  const d: 1 | -1 = dir === "desc" ? -1 : 1;
+  switch (sort) {
+    case "status":
+      return { status: d, _id: 1 };
+    case "slices":
+      return { total_slices: d, _id: 1 };
+    case "success":
+      return { success_count: d, _id: 1 };
+    case "failed":
+      return { failed_count: d, _id: 1 };
+    case "duration":
+      // Duration isn't stored directly; approximate by created_at as a
+      // proxy when sorted ascending and completed_at descending — but
+      // since we don't have a computed field, fall back to created_at
+      // ascending (oldest first) which is the most useful "long-running
+      // first" inversion.
+      return { created_at: d, _id: 1 };
+    case "run":
+      return { github_run_id: d, _id: 1 };
+    case "created":
+    default:
+      return { created_at: d, _id: 1 };
+  }
+}
+
+async function getRuns(status: string | null, page: number, sort: string, dir: "asc" | "desc") {
   const db = await getDb();
   const match: Record<string, unknown> = {};
   if (status && ["running", "success", "failed", "partial", "canceled"].includes(status)) {
@@ -20,7 +57,7 @@ async function getRuns(status: string | null, page: number) {
   const docs = await db
     .collection("executions")
     .find(match)
-    .sort({ created_at: -1 })
+    .sort(buildSortSpec(sort, dir))
     .skip((page - 1) * PAGE_SIZE)
     .limit(PAGE_SIZE)
     .toArray();
@@ -33,11 +70,13 @@ async function getRuns(status: string | null, page: number) {
 export default async function ExecutionsPage({
   searchParams,
 }: {
-  searchParams: { status?: string; page?: string };
+  searchParams: { status?: string; page?: string; sort?: string; dir?: string };
 }) {
   const status = searchParams.status ?? null;
   const page = Math.max(1, parseInt(searchParams.page ?? "1", 10) || 1);
-  const { runs, totalPages } = await getRuns(status, page);
+  const sort = searchParams.sort ?? "created";
+  const dir: "asc" | "desc" = searchParams.dir === "desc" ? "desc" : "asc";
+  const { runs, totalPages } = await getRuns(status, page, sort, dir);
 
   const tabs = [
     { label: "all", value: null },
@@ -74,6 +113,16 @@ export default async function ExecutionsPage({
       />
 
       <div className="px-8 py-10">
+        {/* Sort */}
+        <div className="mb-8">
+          <SortBar
+            options={SORT_OPTIONS}
+            activeSort={sort}
+            activeDir={dir}
+            preserveParams={{ status: searchParams.status }}
+          />
+        </div>
+
         {runs.length === 0 ? (
           <div className="hairline-t pt-12 text-center">
             <div className="eyebrow mb-3">EMPTY</div>

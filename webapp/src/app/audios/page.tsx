@@ -5,11 +5,40 @@ import { getDb } from "@/lib/mongo";
 import { stringifyIds } from "@/lib/types";
 import { PageHeader } from "@/components/PageHeader";
 import { Pagination } from "@/components/Pagination";
+import { SortBar, type SortOption } from "@/components/SortBar";
 import { formatDuration, formatRelative, truncateUrl } from "@/lib/format";
 
 const PAGE_SIZE = 30;
 
-async function getAudios(search: string, page: number) {
+const SORT_OPTIONS: SortOption[] = [
+  { label: "Usage", value: "usage" },
+  { label: "Name", value: "name" },
+  { label: "Duration", value: "duration" },
+  { label: "Last used", value: "last_used" },
+  { label: "URL", value: "url" },
+  { label: "Created", value: "created" },
+];
+
+function buildSortSpec(sort: string, dir: "asc" | "desc"): Record<string, 1 | -1> {
+  const d: 1 | -1 = dir === "desc" ? -1 : 1;
+  switch (sort) {
+    case "name":
+      return { name: d, _id: 1 };
+    case "duration":
+      return { duration_seconds: d, _id: 1 };
+    case "last_used":
+      return { last_used_at: d, _id: 1 };
+    case "url":
+      return { source_url: d, _id: 1 };
+    case "created":
+      return { created_at: d, _id: 1 };
+    case "usage":
+    default:
+      return { usage_count: d, _id: 1 };
+  }
+}
+
+async function getAudios(search: string, page: number, sort: string, dir: "asc" | "desc") {
   const db = await getDb();
   const filter: Record<string, unknown> = {};
   if (search) {
@@ -19,7 +48,7 @@ async function getAudios(search: string, page: number) {
   const docs = await db
     .collection("audios")
     .find(filter)
-    .sort({ usage_count: -1, _id: 1 })
+    .sort(buildSortSpec(sort, dir))
     .skip((page - 1) * PAGE_SIZE)
     .limit(PAGE_SIZE)
     .toArray();
@@ -32,11 +61,13 @@ async function getAudios(search: string, page: number) {
 export default async function AudiosPage({
   searchParams,
 }: {
-  searchParams: { search?: string; page?: string };
+  searchParams: { search?: string; page?: string; sort?: string; dir?: string };
 }) {
   const search = searchParams.search ?? "";
   const page = Math.max(1, parseInt(searchParams.page ?? "1", 10) || 1);
-  const { audios, totalPages } = await getAudios(search, page);
+  const sort = searchParams.sort ?? "usage";
+  const dir: "asc" | "desc" = searchParams.dir === "desc" ? "desc" : "asc";
+  const { audios, totalPages } = await getAudios(search, page, sort, dir);
 
   return (
     <>
@@ -52,16 +83,24 @@ export default async function AudiosPage({
       />
 
       <div className="px-8 py-10">
-        {/* Search */}
-        <form className="mb-8 max-w-md">
-          <input
-            type="text"
-            name="search"
-            defaultValue={search}
-            placeholder="Search audios…"
-            className="field-input"
+        {/* Search + sort */}
+        <div className="flex items-end justify-between gap-8 mb-8 flex-wrap">
+          <form className="max-w-md flex-1 min-w-[16rem]">
+            <input
+              type="text"
+              name="search"
+              defaultValue={search}
+              placeholder="Search audios…"
+              className="field-input"
+            />
+          </form>
+          <SortBar
+            options={SORT_OPTIONS}
+            activeSort={sort}
+            activeDir={dir}
+            preserveParams={{ search: searchParams.search }}
           />
-        </form>
+        </div>
 
         {audios.length === 0 ? (
           <div className="hairline-t pt-12 text-center">

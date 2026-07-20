@@ -8,18 +8,70 @@ import Link from "next/link";
 import { getDb } from "@/lib/mongo";
 import { stringifyIds } from "@/lib/types";
 import { PageHeader } from "@/components/PageHeader";
+import { SortBar, type SortOption } from "@/components/SortBar";
 import { formatRelative } from "@/lib/format";
 
-async function getCategories(search: string) {
+const SORT_OPTIONS: SortOption[] = [
+  { label: "Name", value: "name" },
+  { label: "Videos", value: "videos" },
+  { label: "Usage", value: "usage" },
+  { label: "Last used", value: "last_used" },
+  { label: "Created", value: "created" },
+];
+
+function buildSortSpec(sort: string, dir: "asc" | "desc"): Record<string, 1 | -1> {
+  const d: 1 | -1 = dir === "desc" ? -1 : 1;
+  switch (sort) {
+    case "videos":
+      return { video_count: d, _id: 1 };
+    case "usage":
+      return { usage_count: d, _id: 1 };
+    case "last_used":
+      return { last_used_at: d, _id: 1 };
+    case "created":
+      return { created_at: d, _id: 1 };
+    case "name":
+    default:
+      return { name: d, _id: 1 };
+  }
+}
+
+async function getCategories(search: string, sort: string, dir: "asc" | "desc") {
   const db = await getDb();
   const filter: Record<string, unknown> = {};
   if (search) {
     filter.name = { $regex: search, $options: "i" };
   }
+
+  // For sort by video_count we need an aggregation join. Otherwise we
+  // can sort on the categories collection directly.
+  if (sort === "videos") {
+    const pipeline = [
+      { $match: filter },
+      {
+        $lookup: {
+          from: "videos",
+          localField: "_id",
+          foreignField: "category_id",
+          as: "_videos",
+        },
+      },
+      {
+        $addFields: {
+          video_count: { $size: "$_videos" },
+        },
+      },
+      { $project: { _videos: 0 } },
+      { $sort: buildSortSpec(sort, dir) },
+    ];
+    const cats = await db.collection("categories").aggregate(pipeline).toArray();
+    return cats.map((c) => stringifyIds(c));
+  }
+
   const cats = await db
     .collection("categories")
     .find(filter)
-    .sort({ _id: 1 })
+    .sort(buildSortSpec(sort, dir))
     .toArray();
   const counts = await db
     .collection("videos")
@@ -35,10 +87,12 @@ async function getCategories(search: string) {
 export default async function CategoriesPage({
   searchParams,
 }: {
-  searchParams: { search?: string };
+  searchParams: { search?: string; sort?: string; dir?: string };
 }) {
   const search = searchParams.search ?? "";
-  const categories = await getCategories(search);
+  const sort = searchParams.sort ?? "name";
+  const dir: "asc" | "desc" = searchParams.dir === "desc" ? "desc" : "asc";
+  const categories = await getCategories(search, sort, dir);
 
   return (
     <>
@@ -54,16 +108,24 @@ export default async function CategoriesPage({
       />
 
       <div className="px-8 py-10">
-        {/* Search */}
-        <form className="mb-8 max-w-md">
-          <input
-            type="text"
-            name="search"
-            defaultValue={search}
-            placeholder="Search categories…"
-            className="field-input"
+        {/* Search + sort */}
+        <div className="flex items-end justify-between gap-8 mb-8 flex-wrap">
+          <form className="max-w-md flex-1 min-w-[16rem]">
+            <input
+              type="text"
+              name="search"
+              defaultValue={search}
+              placeholder="Search categories…"
+              className="field-input"
+            />
+          </form>
+          <SortBar
+            options={SORT_OPTIONS}
+            activeSort={sort}
+            activeDir={dir}
+            preserveParams={{ search: searchParams.search }}
           />
-        </form>
+        </div>
 
         {categories.length === 0 ? (
           <div className="hairline-t pt-12 text-center">

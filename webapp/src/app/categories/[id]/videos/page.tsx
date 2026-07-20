@@ -6,9 +6,38 @@ import { notFound } from "next/navigation";
 import { getDb } from "@/lib/mongo";
 import { stringifyIds } from "@/lib/types";
 import { PageHeader } from "@/components/PageHeader";
+import { SortBar, type SortOption } from "@/components/SortBar";
 import { formatDuration, truncateUrl } from "@/lib/format";
 
-async function getCategoryAndVideos(id: string, search: string) {
+const SORT_OPTIONS: SortOption[] = [
+  { label: "Name", value: "name" },
+  { label: "Duration", value: "duration" },
+  { label: "Usage", value: "usage" },
+  { label: "Last used", value: "last_used" },
+  { label: "URL", value: "url" },
+  { label: "Created", value: "created" },
+];
+
+function buildSortSpec(sort: string, dir: "asc" | "desc"): Record<string, 1 | -1> {
+  const d: 1 | -1 = dir === "desc" ? -1 : 1;
+  switch (sort) {
+    case "duration":
+      return { duration_seconds: d, _id: 1 };
+    case "usage":
+      return { usage_count: d, _id: 1 };
+    case "last_used":
+      return { last_used_at: d, _id: 1 };
+    case "url":
+      return { source_url: d, _id: 1 };
+    case "created":
+      return { created_at: d, _id: 1 };
+    case "name":
+    default:
+      return { name: d, _id: 1 };
+  }
+}
+
+async function getCategoryAndVideos(id: string, search: string, sort: string, dir: "asc" | "desc") {
   let oid: ObjectId;
   try {
     oid = new ObjectId(id);
@@ -26,7 +55,7 @@ async function getCategoryAndVideos(id: string, search: string) {
   const vids = await db
     .collection("videos")
     .find(filter)
-    .sort({ _id: 1 })
+    .sort(buildSortSpec(sort, dir))
     .toArray();
   const catS = stringifyIds(cat) as any;
   return {
@@ -40,10 +69,12 @@ export default async function CategoryVideosPage({
   searchParams,
 }: {
   params: { id: string };
-  searchParams: { search?: string };
+  searchParams: { search?: string; sort?: string; dir?: string };
 }) {
   const search = searchParams.search ?? "";
-  const data = await getCategoryAndVideos(params.id, search);
+  const sort = searchParams.sort ?? "name";
+  const dir: "asc" | "desc" = searchParams.dir === "desc" ? "desc" : "asc";
+  const data = await getCategoryAndVideos(params.id, search, sort, dir);
   if (!data) notFound();
 
   return (
@@ -63,16 +94,24 @@ export default async function CategoryVideosPage({
       />
 
       <div className="px-8 py-10 space-y-8">
-        {/* Search */}
-        <form className="max-w-md">
-          <input
-            type="text"
-            name="search"
-            defaultValue={search}
-            placeholder="Search videos in this category…"
-            className="field-input"
+        {/* Search + sort */}
+        <div className="flex items-end justify-between gap-8 flex-wrap">
+          <form className="max-w-md flex-1 min-w-[16rem]">
+            <input
+              type="text"
+              name="search"
+              defaultValue={search}
+              placeholder="Search videos in this category…"
+              className="field-input"
+            />
+          </form>
+          <SortBar
+            options={SORT_OPTIONS}
+            activeSort={sort}
+            activeDir={dir}
+            preserveParams={{ search: searchParams.search }}
           />
-        </form>
+        </div>
 
         {/* List */}
         {data.videos.length === 0 ? (
