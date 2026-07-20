@@ -6,10 +6,9 @@ import { notFound } from "next/navigation";
 import { getDb } from "@/lib/mongo";
 import { stringifyIds } from "@/lib/types";
 import { PageHeader } from "@/components/PageHeader";
-import { AddVideoForm } from "@/components/AddVideoForm";
 import { formatDuration, truncateUrl } from "@/lib/format";
 
-async function getCategoryAndVideos(id: string) {
+async function getCategoryAndVideos(id: string, search: string) {
   let oid: ObjectId;
   try {
     oid = new ObjectId(id);
@@ -19,9 +18,14 @@ async function getCategoryAndVideos(id: string) {
   const db = await getDb();
   const cat = await db.collection("categories").findOne({ _id: oid });
   if (!cat) return null;
+
+  const filter: Record<string, unknown> = { category_id: oid };
+  if (search) {
+    filter.name = { $regex: search, $options: "i" };
+  }
   const vids = await db
     .collection("videos")
-    .find({ category_id: oid })
+    .find(filter)
     .sort({ _id: 1 })
     .toArray();
   const catS = stringifyIds(cat) as any;
@@ -33,10 +37,13 @@ async function getCategoryAndVideos(id: string) {
 
 export default async function CategoryVideosPage({
   params,
+  searchParams,
 }: {
   params: { id: string };
+  searchParams: { search?: string };
 }) {
-  const data = await getCategoryAndVideos(params.id);
+  const search = searchParams.search ?? "";
+  const data = await getCategoryAndVideos(params.id, search);
   if (!data) notFound();
 
   return (
@@ -55,16 +62,23 @@ export default async function CategoryVideosPage({
         meta="Background videos for this scenery category. The pipeline picks from these when this category is selected. Click a row to edit or delete."
       />
 
-      <div className="px-8 py-10 space-y-12">
-        {/* Add form */}
-        <section className="max-w-2xl">
-          <div className="eyebrow mb-4 hairline-b pb-3">ADD VIDEO</div>
-          <AddVideoForm categoryId={data.category._id} />
-        </section>
+      <div className="px-8 py-10 space-y-8">
+        {/* Search */}
+        <form className="max-w-md">
+          <input
+            type="text"
+            name="search"
+            defaultValue={search}
+            placeholder="Search videos in this category…"
+            className="field-input"
+          />
+        </form>
 
         {/* List */}
         {data.videos.length === 0 ? (
-          <p className="text-mute italic">No videos in this category yet.</p>
+          <p className="text-mute italic">
+            {search ? "No videos match your search." : "No videos in this category yet."}
+          </p>
         ) : (
           <section>
             <div>

@@ -10,11 +10,15 @@ import { stringifyIds } from "@/lib/types";
 import { PageHeader } from "@/components/PageHeader";
 import { formatRelative } from "@/lib/format";
 
-async function getCategories() {
+async function getCategories(search: string) {
   const db = await getDb();
+  const filter: Record<string, unknown> = {};
+  if (search) {
+    filter.name = { $regex: search, $options: "i" };
+  }
   const cats = await db
     .collection("categories")
-    .find({})
+    .find(filter)
     .sort({ _id: 1 })
     .toArray();
   const counts = await db
@@ -28,8 +32,13 @@ async function getCategories() {
   }));
 }
 
-export default async function CategoriesPage() {
-  const categories = await getCategories();
+export default async function CategoriesPage({
+  searchParams,
+}: {
+  searchParams: { search?: string };
+}) {
+  const search = searchParams.search ?? "";
+  const categories = await getCategories(search);
 
   return (
     <>
@@ -45,17 +54,33 @@ export default async function CategoriesPage() {
       />
 
       <div className="px-8 py-10">
+        {/* Search */}
+        <form className="mb-8 max-w-md">
+          <input
+            type="text"
+            name="search"
+            defaultValue={search}
+            placeholder="Search categories…"
+            className="field-input"
+          />
+        </form>
+
         {categories.length === 0 ? (
           <div className="hairline-t pt-12 text-center">
             <div className="eyebrow mb-3">EMPTY</div>
-            <h2 className="font-serif text-3xl mb-3">No categories registered</h2>
+            <h2 className="font-serif text-3xl mb-3">
+              {search ? "No categories match your search" : "No categories registered"}
+            </h2>
             <p className="text-mute text-sm mb-8 max-w-md mx-auto">
-              Add a category (e.g. &quot;sea&quot;, &quot;forest&quot;) before registering
-              videos — videos belong to a category.
+              {search
+                ? "Try a different search term."
+                : "Add a category (e.g. \"sea\", \"forest\") before registering videos — videos belong to a category."}
             </p>
-            <Link href="/categories/new" className="btn-primary inline-flex">
-              Add your first category
-            </Link>
+            {!search && (
+              <Link href="/categories/new" className="btn-primary inline-flex">
+                Add your first category
+              </Link>
+            )}
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-12 gap-y-10">
