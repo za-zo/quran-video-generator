@@ -1,41 +1,61 @@
+"use client";
+
 /**
- * Persistent left-rail navigation.
+ * Persistent left-rail navigation (Client Component).
  *
- * Reads like a library catalog index: section labels (DASHBOARD / AUDIOS / …)
- * are uppercase mono eyebrows; the count next to each item is the real number
- * of records in that collection — not decoration.
+ * WHY CLIENT
+ * The Nav lives in the root layout, which in Next.js App Router is NOT
+ * re-rendered on navigation between child routes. So a Server Component
+ * Nav would fetch counts ONCE on first paint and never again — counts
+ * would stay stale forever, even with experimental.staleTimes: 0.
  *
- * The active section is marked with a thin oxblood rule on the left, not a
+ * By making it a Client Component, we can use usePathname() to detect
+ * navigation and re-fetch counts from /api/nav-counts after every
+ * route change. This covers the user's requirement: counts refresh
+ * after every add/delete (since every mutation is followed by a
+ * navigation back to the list).
+ *
+ * DESIGN
+ * Reads like a library catalog index: section labels (DASHBOARD /
+ * AUDIOS / …) are uppercase mono eyebrows; the count next to each
+ * item is the real number of records in that collection. The active
+ * section is marked with a thin oxblood rule on the left, not a
  * background fill, so the rail stays quiet.
  */
 
 import Link from "next/link";
-import { getDb } from "@/lib/mongo";
+import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
 
-async function getCounts() {
-  try {
-    const db = await getDb();
-    const [audios, categories, videos, execs] = await Promise.all([
-      db.collection("audios").countDocuments(),
-      db.collection("categories").countDocuments(),
-      db.collection("videos").countDocuments(),
-      db.collection("executions").countDocuments(),
-    ]);
-    return { audios, categories, videos, execs };
-  } catch {
-    return { audios: 0, categories: 0, videos: 0, execs: 0 };
-  }
-}
+type Counts = { audios: number; categories: number; videos: number; execs: number };
 
-export const dynamic = "force-dynamic";
+const EMPTY_COUNTS: Counts = { audios: 0, categories: 0, videos: 0, execs: 0 };
 
-export async function Nav() {
-  const counts = await getCounts();
+export function Nav() {
+  const pathname = usePathname();
+  const [counts, setCounts] = useState<Counts>(EMPTY_COUNTS);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/nav-counts", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((data: Counts) => {
+        if (!cancelled) setCounts(data);
+      })
+      .catch(() => {
+        // Silently keep previous counts on network error.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [pathname]);
+
   const items = [
     { href: "/", label: "Dashboard", count: null, eyebrow: "OVERVIEW" },
     { href: "/audios", label: "Audios", count: counts.audios, eyebrow: "MEDIA" },
     { href: "/categories", label: "Categories", count: counts.categories, eyebrow: "MEDIA" },
     { href: "/executions", label: "Executions", count: counts.execs, eyebrow: "PIPELINE" },
+    { href: "/outputs", label: "Outputs", count: null, eyebrow: "GALLERY" },
   ];
 
   return (
@@ -49,28 +69,38 @@ export async function Nav() {
         <div className="eyebrow mt-1">OPERATIONS</div>
       </div>
       <nav className="py-2">
-        {items.map((item) => (
-          <Link
-            key={item.href}
-            href={item.href}
-            className="group block px-6 py-3 border-l-2 border-transparent hover:border-rule hover:bg-paper/50 transition-colors"
-          >
-            <div className="eyebrow mb-1">{item.eyebrow}</div>
-            <div className="flex items-baseline justify-between">
-              <span className="text-sm font-medium text-inkSoft group-hover:text-ink transition-colors">
-                {item.label}
-              </span>
-              {item.count !== null && (
-                <span className="num text-2xs text-mute">{item.count}</span>
-              )}
-            </div>
-          </Link>
-        ))}
+        {items.map((item) => {
+          const isActive =
+            item.href === "/"
+              ? pathname === "/"
+              : pathname === item.href || pathname.startsWith(item.href + "/");
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              className={`group block px-6 py-3 border-l-2 transition-colors ${
+                isActive
+                  ? "border-accent bg-paper/60"
+                  : "border-transparent hover:border-rule hover:bg-paper/50"
+              }`}
+            >
+              <div className="eyebrow mb-1">{item.eyebrow}</div>
+              <div className="flex items-baseline justify-between">
+                <span
+                  className={`text-sm font-medium transition-colors ${
+                    isActive ? "text-ink" : "text-inkSoft group-hover:text-ink"
+                  }`}
+                >
+                  {item.label}
+                </span>
+                {item.count !== null && (
+                  <span className="num text-2xs text-mute">{item.count}</span>
+                )}
+              </div>
+            </Link>
+          );
+        })}
       </nav>
-      <div className="px-6 py-4 mt-8 hairline-t">
-        <div className="eyebrow mb-1">VERSION</div>
-        <div className="num text-2xs text-mute">cloud / 0.1.0</div>
-      </div>
     </aside>
   );
 }

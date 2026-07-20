@@ -129,9 +129,22 @@ export default async function SliceDetailPage({
         {/* Output: Cloudinary player if success */}
         {slice.status === "success" && slice.output && (
           <section>
-            <div className="eyebrow mb-3 hairline-b pb-3">OUTPUT</div>
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-              <div className="lg:col-span-2">
+            <div className="flex items-baseline justify-between hairline-b pb-3 mb-6">
+              <div className="eyebrow">OUTPUT</div>
+              <a
+                href={slice.output.cloudinary_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="quiet-link text-sm"
+              >
+                Open in new tab ↗
+              </a>
+            </div>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              {/* Video player — constrained to max-w-md so it doesn't
+                  dominate the page. The full URL + open-in-new-tab
+                  link live in the details column. */}
+              <div className="max-w-md">
                 <video
                   src={slice.output.cloudinary_url}
                   controls
@@ -185,18 +198,30 @@ export default async function SliceDetailPage({
           <div>
             <div className="eyebrow mb-4 hairline-b pb-3">SOURCE AUDIO</div>
             {slice._audio ? (
-              <Link
-                href={`/audios/${slice._audio._id}/edit`}
-                className="block hover:bg-paperRaised/50 transition-colors -mx-2 px-2 py-2"
-              >
-                <div className="text-sm font-medium text-ink">{slice._audio.name}</div>
-                <div className="num text-xs text-mute mt-1">
-                  {formatDuration(slice._audio.duration_seconds)} total
+              <div className="block">
+                <Link
+                  href={`/audios/${slice._audio._id}/edit`}
+                  className="block hover:bg-paperRaised/50 transition-colors -mx-2 px-2 py-2"
+                >
+                  <div className="text-sm font-medium text-ink">{slice._audio.name}</div>
+                  <div className="num text-xs text-mute mt-1">
+                    {formatDuration(slice._audio.duration_seconds)} total
+                  </div>
+                  <div className="font-mono text-2xs text-mute mt-1 truncate">
+                    {truncateUrl(slice._audio.source_url, 60)}
+                  </div>
+                </Link>
+                <div className="mt-2">
+                  <a
+                    href={slice._audio.source_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="quiet-link text-sm"
+                  >
+                    Listen in new tab ↗
+                  </a>
                 </div>
-                <div className="font-mono text-2xs text-mute mt-1 truncate">
-                  {truncateUrl(slice._audio.source_url, 60)}
-                </div>
-              </Link>
+              </div>
             ) : (
               <div className="text-mute italic text-sm">
                 [deleted audio]
@@ -238,9 +263,20 @@ export default async function SliceDetailPage({
                     <span className="num text-2xs text-mute">
                       {String(i + 1).padStart(2, "0")}
                     </span>
-                    <span className="num text-xs text-mute">
-                      {formatDuration(v.duration_seconds)}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <a
+                        href={v.source_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="quiet-link text-2xs"
+                        aria-label={`Open ${v.name} in new tab`}
+                      >
+                        open ↗
+                      </a>
+                      <span className="num text-xs text-mute">
+                        {formatDuration(v.duration_seconds)}
+                      </span>
+                    </div>
                   </div>
                   <div className="text-sm font-medium text-ink truncate">{v.name}</div>
                   <div className="font-mono text-2xs text-mute mt-1 truncate">

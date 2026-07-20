@@ -131,6 +131,18 @@ export function AudioForm({ audio }: { audio?: { _id: string; name: string; sour
             className={`field-input ${errors.sourceUrl ? "field-input-error" : ""}`}
           />
         </FormField>
+        {!isNew && sourceUrl && (
+          <div className="-mt-2">
+            <a
+              href={sourceUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="quiet-link text-sm"
+            >
+              Listen to this audio in a new tab ↗
+            </a>
+          </div>
+        )}
         <FormField
           label="Duration (seconds)"
           error={errors.duration}

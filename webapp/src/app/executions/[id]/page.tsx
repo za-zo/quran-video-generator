@@ -8,9 +8,37 @@ import { PageHeader } from "@/components/PageHeader";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Pagination } from "@/components/Pagination";
 import { BackLink } from "@/components/BackLink";
+import { SortBar, type SortOption } from "@/components/SortBar";
 import { formatDuration, formatRelative, formatTimestamp } from "@/lib/format";
 
 const PAGE_SIZE = 30;
+
+const SLICE_SORT_OPTIONS: SortOption[] = [
+  { label: "Index", value: "index" },
+  { label: "Status", value: "status" },
+  { label: "Audio", value: "audio" },
+  { label: "Duration", value: "duration" },
+  { label: "Created", value: "created" },
+];
+
+function buildSliceSortSpec(sort: string, dir: "asc" | "desc"): Record<string, 1 | -1> {
+  const d: 1 | -1 = dir === "desc" ? -1 : 1;
+  switch (sort) {
+    case "status":
+      return { status: d, "slice.index": 1 };
+    case "duration":
+      return { "slice.duration_seconds": d, "slice.index": 1 };
+    case "created":
+      return { created_at: d, "slice.index": 1 };
+    case "audio":
+      // audio_id is an ObjectId — sort by it as a proxy for audio name
+      // (not ideal, but avoids a join just for sort). Stable tiebreak.
+      return { audio_id: d, "slice.index": 1 };
+    case "index":
+    default:
+      return { "slice.index": d, _id: 1 };
+  }
+}
 
 async function getRun(id: string) {
   const db = await getDb();
@@ -25,7 +53,13 @@ async function getRun(id: string) {
   return run ? stringifyIds(run) : null;
 }
 
-async function getSlices(executionId: string, page: number) {
+async function getSlices(
+  executionId: string,
+  page: number,
+  status: string | null,
+  sort: string,
+  dir: "asc" | "desc",
+) {
   const db = await getDb();
   const { ObjectId } = await import("mongodb");
   let oid;
@@ -34,12 +68,15 @@ async function getSlices(executionId: string, page: number) {
   } catch {
     return { slices: [], totalPages: 0 };
   }
-  const filter = { execution_id: oid };
+  const filter: Record<string, unknown> = { execution_id: oid };
+  if (status && ["pending", "success", "failed", "canceled"].includes(status)) {
+    filter.status = status;
+  }
   const total = await db.collection("execution_slices").countDocuments(filter);
   const docs = await db
     .collection("execution_slices")
     .find(filter)
-    .sort({ "slice.index": 1 })
+    .sort(buildSliceSortSpec(sort, dir))
     .skip((page - 1) * PAGE_SIZE)
     .limit(PAGE_SIZE)
     .toArray();
@@ -79,19 +116,47 @@ export default async function ExecutionDetailPage({
   searchParams,
 }: {
   params: { id: string };
-  searchParams: { page?: string };
+  searchParams: { page?: string; status?: string; sort?: string; dir?: string };
 }) {
   const run = await getRun(params.id);
   if (!run) notFound();
 
   const page = Math.max(1, parseInt(searchParams.page ?? "1", 10) || 1);
-  const { slices, totalPages } = await getSlices(String(run._id), page);
+  const status = searchParams.status ?? null;
+  const sort = searchParams.sort ?? "index";
+  const dir: "asc" | "desc" = searchParams.dir === "desc" ? "desc" : "asc";
+  const { slices, totalPages } = await getSlices(
+    String(run._id),
+    page,
+    status,
+    sort,
+    dir,
+  );
 
   const githubRepo = process.env.GITHUB_REPO || "";
   const actionsUrl =
     githubRepo && (run as any).github_run_id
       ? `https://github.com/${githubRepo}/actions/runs/${(run as any).github_run_id}`
       : null;
+
+  const tabs = [
+    { label: "all", value: null },
+    { label: "pending", value: "pending" },
+    { label: "success", value: "success" },
+    { label: "failed", value: "failed" },
+    { label: "canceled", value: "canceled" },
+  ];
+
+  // Build href for status tabs — preserve sort/dir but reset page.
+  function statusTabHref(value: string | null) {
+    const params = new URLSearchParams();
+    if (value) params.set("status", value);
+    if (sort && sort !== "index") params.set("sort", sort);
+    if (dir === "desc") params.set("dir", "desc");
+    const qs = params.toString();
+    const base = `/executions/${run!._id}`;
+    return qs ? `${base}?${qs}` : base;
+  }
 
   return (
     <>
@@ -150,11 +215,42 @@ export default async function ExecutionDetailPage({
 
         {/* Slices list */}
         <section>
-          <div className="eyebrow mb-4 hairline-b pb-3">
-            SLICES ({(run as any).total_slices ?? 0})
+          <div className="flex items-baseline justify-between hairline-b pb-3 mb-6">
+            <div className="eyebrow">
+              SLICES ({(run as any).total_slices ?? 0})
+            </div>
+            {/* Status filter tabs */}
+            <div className="flex items-center gap-1 flex-wrap">
+              {tabs.map((t) => (
+                <Link
+                  key={t.label}
+                  href={statusTabHref(t.value)}
+                  className={`px-3 py-1.5 text-xs uppercase tracking-wide-2 font-mono transition-colors ${
+                    status === t.value || (!status && !t.value)
+                      ? "bg-ink text-paper"
+                      : "text-mute hover:text-ink hover:bg-paperRaised"
+                  }`}
+                >
+                  {t.label}
+                </Link>
+              ))}
+            </div>
           </div>
+
+          {/* Sort bar */}
+          <div className="mb-6">
+            <SortBar
+              options={SLICE_SORT_OPTIONS}
+              activeSort={sort}
+              activeDir={dir}
+              preserveParams={{
+                status: searchParams.status,
+              }}
+            />
+          </div>
+
           {slices.length === 0 ? (
-            <p className="text-mute italic text-sm">No slices found for this run.</p>
+            <p className="text-mute italic text-sm">No slices match the current filter.</p>
           ) : (
             <>
               <div>

@@ -154,10 +154,14 @@ export default async function CategoryVideosPage({
               </div>
               <ul>
                 {data.videos.map((v: any, i: number) => (
-                  <li key={v._id} className="hairline-b-soft last:border-b-0">
+                  <li
+                    key={v._id}
+                    className="hairline-b-soft last:border-b-0 relative hover:bg-paperRaised/50 transition-colors"
+                  >
                     <Link
                       href={`/categories/${data.category._id}/videos/${v._id}/edit`}
-                      className="grid grid-cols-12 gap-4 px-2 py-4 items-center hover:bg-paperRaised/50 transition-colors"
+                      className="grid grid-cols-12 gap-4 px-2 py-4 items-center"
+                      aria-label={`Edit ${v.name}`}
                     >
                       <div className="col-span-1 num text-2xs text-mute">
                         {String(i + 1).padStart(3, "0")}
@@ -165,8 +169,18 @@ export default async function CategoryVideosPage({
                       <div className="col-span-4 truncate text-sm font-medium text-ink">
                         {v.name}
                       </div>
-                      <div className="col-span-4 truncate text-xs text-mute font-mono">
-                        {truncateUrl(v.source_url, 60)}
+                      <div className="col-span-4 truncate text-xs text-mute font-mono flex items-center gap-1.5">
+                        <span className="truncate">{truncateUrl(v.source_url, 55)}</span>
+                        <a
+                          href={v.source_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          aria-label="Open video in new tab"
+                          title="Open video in new tab"
+                          className="relative z-10 shrink-0 text-mute hover:text-accent transition-colors"
+                        >
+                          ↗
+                        </a>
                       </div>
                       <div className="col-span-2 num text-sm text-inkSoft">
                         {formatDuration(v.duration_seconds)}
