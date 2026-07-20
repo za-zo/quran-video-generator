@@ -1,10 +1,10 @@
 import { ObjectId } from "mongodb";
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getDb } from "@/lib/mongo";
 import { stringifyIds } from "@/lib/types";
 import { PageHeader } from "@/components/PageHeader";
 import { AudioForm } from "@/components/AudioForm";
+import { BackLink } from "@/components/BackLink";
 
 async function getAudio(id: string) {
   let oid: ObjectId;
@@ -43,9 +43,7 @@ export default async function EditAudioPage({
       <div className="px-8 py-10 max-w-2xl">
         <AudioForm audio={audio} />
         <div className="mt-8 text-sm">
-          <Link href="/audios" className="quiet-link">
-            ← back to audios
-          </Link>
+          <BackLink href="/audios">← back to audios</BackLink>
         </div>
       </div>
     </>

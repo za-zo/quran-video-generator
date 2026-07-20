@@ -8,6 +8,7 @@ import { stringifyIds } from "@/lib/types";
 import { PageHeader } from "@/components/PageHeader";
 import { StatusBadge } from "@/components/StatusBadge";
 import { SliceTimeline } from "@/components/SliceTimeline";
+import { BackLink } from "@/components/BackLink";
 import {
   formatDuration,
   formatTimestamp,
@@ -266,13 +267,9 @@ export default async function SliceDetailPage({
 
         <div className="pt-6">
           {runUrl ? (
-            <Link href={runUrl} className="quiet-link text-sm">
-              ← back to run
-            </Link>
+            <BackLink href={runUrl}>← back to run</BackLink>
           ) : (
-            <Link href="/executions" className="quiet-link text-sm">
-              ← back to runs
-            </Link>
+            <BackLink href="/executions">← back to runs</BackLink>
           )}
         </div>
       </div>

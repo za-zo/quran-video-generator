@@ -1,10 +1,10 @@
 import { ObjectId } from "mongodb";
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getDb } from "@/lib/mongo";
 import { stringifyIds } from "@/lib/types";
 import { PageHeader } from "@/components/PageHeader";
 import { VideoForm } from "@/components/VideoForm";
+import { BackLink } from "@/components/BackLink";
 
 async function getVideo(categoryId: string, videoId: string) {
   let vidOid: ObjectId;
@@ -61,9 +61,7 @@ export default async function EditVideoPage({
       <div className="px-8 py-10 max-w-2xl">
         <VideoForm video={video} />
         <div className="mt-8 text-sm">
-          <Link href={`/categories/${params.id}/videos`} className="quiet-link">
-            ← back to videos
-          </Link>
+          <BackLink href={`/categories/${params.id}/videos`}>← back to videos</BackLink>
         </div>
       </div>
     </>

@@ -5,6 +5,7 @@ import { useState } from "react";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { FormField, useFormValidation, validators } from "./FormField";
 import { FormStatus } from "./FormStatus";
+import { useNavigateWithRefresh } from "@/lib/navigate";
 
 type VideoValues = {
   name: string;
@@ -21,6 +22,7 @@ export function VideoForm({
   categoryOptions?: { _id: string; name: string }[];
 }) {
   const router = useRouter();
+  const navigate = useNavigateWithRefresh();
   const isNew = !video;
   const [name, setName] = useState(video?.name ?? "");
   const [sourceUrl, setSourceUrl] = useState(video?.source_url ?? "");
@@ -89,7 +91,7 @@ export function VideoForm({
         // the right category even if the user changed it mid-edit.
         const result = await res.json();
         const finalCatId = result?.video?.category_id ?? categoryId;
-        router.push(`/categories/${finalCatId}/videos`);
+        navigate(`/categories/${finalCatId}/videos`);
       } else {
         setSuccess(`Video "${name}" updated.`);
         router.refresh();
@@ -112,7 +114,7 @@ export function VideoForm({
         setSubmitting(false);
         return;
       }
-      router.push(`/categories/${video!.category_id}/videos`);
+      navigate(`/categories/${video!.category_id}/videos`);
     } catch (err) {
       setFormError(String(err));
       setSubmitting(false);

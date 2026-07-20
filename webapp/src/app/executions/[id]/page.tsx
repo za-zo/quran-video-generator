@@ -7,6 +7,7 @@ import { stringifyIds } from "@/lib/types";
 import { PageHeader } from "@/components/PageHeader";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Pagination } from "@/components/Pagination";
+import { BackLink } from "@/components/BackLink";
 import { formatDuration, formatRelative, formatTimestamp } from "@/lib/format";
 
 const PAGE_SIZE = 30;
@@ -212,9 +213,7 @@ export default async function ExecutionDetailPage({
         </section>
 
         <div className="pt-4">
-          <Link href="/executions" className="quiet-link text-sm">
-            ← back to runs
-          </Link>
+          <BackLink href="/executions">← back to runs</BackLink>
         </div>
       </div>
     </>

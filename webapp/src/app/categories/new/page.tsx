@@ -2,10 +2,11 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import Link from "next/link";
 import { PageHeader } from "@/components/PageHeader";
 import { FormField, useFormValidation, validators } from "@/components/FormField";
 import { FormStatus } from "@/components/FormStatus";
+import { useNavigateWithRefresh } from "@/lib/navigate";
+import { BackLink } from "@/components/BackLink";
 
 type CategoryValues = {
   name: string;
@@ -13,6 +14,7 @@ type CategoryValues = {
 
 export default function NewCategoryPage() {
   const router = useRouter();
+  const navigate = useNavigateWithRefresh();
   const [name, setName] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -52,11 +54,10 @@ export default function NewCategoryPage() {
       const result = await res.json();
       const newId = result?.category?._id ?? result?.category?.id;
       if (!newId) {
-        router.push("/categories");
+        navigate("/categories");
       } else {
-        router.push(`/categories/${newId}/videos`);
+        navigate(`/categories/${newId}/videos`);
       }
-      router.refresh();
     } catch (err) {
       setFormError(String(err));
       setSubmitting(false);
@@ -103,9 +104,7 @@ export default function NewCategoryPage() {
         </form>
 
         <div className="mt-8 text-sm">
-          <Link href="/categories" className="quiet-link">
-            ← back to categories
-          </Link>
+          <BackLink href="/categories">← back to categories</BackLink>
         </div>
       </div>
     </>

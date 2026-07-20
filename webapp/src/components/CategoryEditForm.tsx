@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { FormField, useFormValidation, validators } from "./FormField";
 import { FormStatus } from "./FormStatus";
+import { useNavigateWithRefresh } from "@/lib/navigate";
 
 type CategoryValues = {
   name: string;
@@ -15,6 +16,7 @@ export function CategoryEditForm({
   category: { _id: string; name: string; video_count: number };
 }) {
   const router = useRouter();
+  const navigate = useNavigateWithRefresh();
   const [name, setName] = useState(category.name);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -54,6 +56,7 @@ export function CategoryEditForm({
       router.refresh();
     } catch (err) {
       setFormError(String(err));
+    } finally {
       setSubmitting(false);
     }
   }

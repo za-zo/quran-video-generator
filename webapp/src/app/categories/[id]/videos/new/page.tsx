@@ -1,9 +1,9 @@
 import { ObjectId } from "mongodb";
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getDb } from "@/lib/mongo";
 import { PageHeader } from "@/components/PageHeader";
 import { AddVideoForm } from "@/components/AddVideoForm";
+import { BackLink } from "@/components/BackLink";
 
 async function getCategory(id: string) {
   let oid: ObjectId;
@@ -39,9 +39,7 @@ export default async function NewVideoPage({
       <div className="px-8 py-10 max-w-2xl">
         <AddVideoForm categoryId={cat._id} />
         <div className="mt-8 text-sm">
-          <Link href={`/categories/${cat._id}/videos`} className="quiet-link">
-            ← back to videos
-          </Link>
+          <BackLink href={`/categories/${cat._id}/videos`}>← back to videos</BackLink>
         </div>
       </div>
     </>

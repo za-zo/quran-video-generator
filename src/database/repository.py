@@ -454,8 +454,14 @@ class ExecutionSliceRepo:
         return [str(d["_id"]) for d in cur]
 
 
-# --- Backwards compatibility alias ------------------------------------------
+# --- Backwards compatibility aliases ---------------------------------------
+# `ExecutionRepo` was the original name; the class was renamed to
+# `ExecutionRunRepo` when slices were split out, but several call
+# sites (category_selector.py, tests/test_selectors.py, the database
+# __init__.py re-exports) still reference the old name. Keep the
+# alias so they all keep working.
 JobRepo = ExecutionRunRepo
+ExecutionRepo = ExecutionRunRepo
 
 
 def _normalize_execution(d: dict[str, Any]) -> dict[str, Any]:
@@ -504,6 +510,7 @@ __all__ = [
     "VideoRepo",
     "ExecutionRunRepo",
     "ExecutionSliceRepo",
-    "JobRepo",        # backwards-compat alias
+    "JobRepo",        # backwards-compat alias for ExecutionRunRepo
+    "ExecutionRepo",  # backwards-compat alias for ExecutionRunRepo
     "ensure_indexes",
 ]

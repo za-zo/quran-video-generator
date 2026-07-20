@@ -5,6 +5,7 @@ import { getDb } from "@/lib/mongo";
 import { stringifyIds } from "@/lib/types";
 import { PageHeader } from "@/components/PageHeader";
 import { CategoryEditInline } from "@/components/CategoryEditInline";
+import { BackLink } from "@/components/BackLink";
 
 async function getCategory(id: string) {
   let oid: ObjectId;
@@ -49,14 +50,15 @@ export default async function EditCategoryPage({
       <div className="px-8 py-10 max-w-2xl">
         <CategoryEditInline category={cat} />
         <div className="mt-8 text-sm">
-          <Link href={`/categories/${cat._id}/videos`} className="quiet-link">
+          <Link
+            href={`/categories/${cat._id}/videos`}
+            className="quiet-link"
+          >
             → manage videos in this category
           </Link>
         </div>
         <div className="mt-2 text-sm">
-          <Link href="/categories" className="quiet-link">
-            ← back to categories
-          </Link>
+          <BackLink href="/categories">← back to categories</BackLink>
         </div>
       </div>
     </>

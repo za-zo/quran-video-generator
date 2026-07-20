@@ -5,6 +5,7 @@ import { useState } from "react";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { FormField, useFormValidation, validators } from "./FormField";
 import { FormStatus } from "./FormStatus";
+import { useNavigateWithRefresh } from "@/lib/navigate";
 
 type CategoryValues = {
   name: string;
@@ -12,6 +13,7 @@ type CategoryValues = {
 
 export function CategoryForm({ category }: { category?: { _id: string; name: string } }) {
   const router = useRouter();
+  const navigate = useNavigateWithRefresh();
   const isNew = !category;
   const [name, setName] = useState(category?.name ?? "");
   const [submitting, setSubmitting] = useState(false);
@@ -58,9 +60,9 @@ export function CategoryForm({ category }: { category?: { _id: string; name: str
         if (!newId) {
           // Fallback: redirect to the categories list rather than
           // navigating to /categories/undefined/videos (which 404s).
-          router.push("/categories");
+          navigate("/categories");
         } else {
-          router.push(`/categories/${newId}/videos`);
+          navigate(`/categories/${newId}/videos`);
         }
       } else {
         setSuccess(`Category "${name}" updated.`);
@@ -84,7 +86,7 @@ export function CategoryForm({ category }: { category?: { _id: string; name: str
         setSubmitting(false);
         return;
       }
-      router.push("/categories");
+      navigate("/categories");
     } catch (err) {
       setFormError(String(err));
       setSubmitting(false);

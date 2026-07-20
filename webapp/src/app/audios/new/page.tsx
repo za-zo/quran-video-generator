@@ -1,6 +1,6 @@
-import Link from "next/link";
 import { PageHeader } from "@/components/PageHeader";
 import { AudioForm } from "@/components/AudioForm";
+import { BackLink } from "@/components/BackLink";
 
 export default function NewAudioPage() {
   return (
@@ -13,9 +13,7 @@ export default function NewAudioPage() {
       <div className="px-8 py-10 max-w-2xl">
         <AudioForm />
         <div className="mt-8 text-sm">
-          <Link href="/audios" className="quiet-link">
-            ← back to audios
-          </Link>
+          <BackLink href="/audios">← back to audios</BackLink>
         </div>
       </div>
     </>

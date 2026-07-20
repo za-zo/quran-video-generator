@@ -5,6 +5,7 @@ import { useState } from "react";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { FormField, useFormValidation, validators } from "./FormField";
 import { FormStatus } from "./FormStatus";
+import { useNavigateWithRefresh } from "@/lib/navigate";
 
 type AudioValues = {
   name: string;
@@ -14,6 +15,7 @@ type AudioValues = {
 
 export function AudioForm({ audio }: { audio?: { _id: string; name: string; source_url: string; duration_seconds: number } }) {
   const router = useRouter();
+  const navigate = useNavigateWithRefresh();
   const isNew = !audio;
   const [name, setName] = useState(audio?.name ?? "");
   const [sourceUrl, setSourceUrl] = useState(audio?.source_url ?? "");
@@ -72,7 +74,7 @@ export function AudioForm({ audio }: { audio?: { _id: string; name: string; sour
         return;
       }
       if (isNew) {
-        router.push("/audios");
+        navigate("/audios");
       } else {
         setSuccess(`Audio "${name}" updated.`);
         router.refresh();
@@ -95,7 +97,7 @@ export function AudioForm({ audio }: { audio?: { _id: string; name: string; sour
         setSubmitting(false);
         return;
       }
-      router.push("/audios");
+      navigate("/audios");
     } catch (err) {
       setFormError(String(err));
       setSubmitting(false);

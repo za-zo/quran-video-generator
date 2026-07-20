@@ -5,6 +5,7 @@ import { useState } from "react";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { FormField, useFormValidation, validators } from "./FormField";
 import { FormStatus } from "./FormStatus";
+import { useNavigateWithRefresh } from "@/lib/navigate";
 
 type CategoryValues = {
   name: string;
@@ -12,6 +13,7 @@ type CategoryValues = {
 
 export function CategoryEditInline({ category }: { category: { _id: string; name: string; video_count: number } }) {
   const router = useRouter();
+  const navigate = useNavigateWithRefresh();
   const [name, setName] = useState(category.name);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -52,6 +54,7 @@ export function CategoryEditInline({ category }: { category: { _id: string; name
       router.refresh();
     } catch (err) {
       setFormError(String(err));
+    } finally {
       setSubmitting(false);
     }
   }
@@ -64,13 +67,12 @@ export function CategoryEditInline({ category }: { category: { _id: string; name
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         setFormError(body.error || `delete failed (${res.status})`);
-        setSubmitting(false);
         return;
       }
-      router.push("/categories");
-      router.refresh();
+      navigate("/categories");
     } catch (err) {
       setFormError(String(err));
+    } finally {
       setSubmitting(false);
     }
   }

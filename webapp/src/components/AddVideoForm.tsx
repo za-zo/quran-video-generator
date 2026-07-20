@@ -8,6 +8,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { FormField, useFormValidation, validators } from "./FormField";
 import { FormStatus } from "./FormStatus";
+import { useNavigateWithRefresh } from "@/lib/navigate";
 
 type AddVideoValues = {
   name: string;
@@ -17,6 +18,7 @@ type AddVideoValues = {
 
 export function AddVideoForm({ categoryId }: { categoryId: string }) {
   const router = useRouter();
+  const navigate = useNavigateWithRefresh();
   const [name, setName] = useState("");
   const [sourceUrl, setSourceUrl] = useState("");
   const [duration, setDuration] = useState("");
@@ -77,8 +79,7 @@ export function AddVideoForm({ categoryId }: { categoryId: string }) {
       // Navigate to the videos list rather than refreshing in place —
       // the form now lives on its own /new page, so users expect to
       // land back on the list after a successful add.
-      router.push(`/categories/${categoryId}/videos`);
-      router.refresh();
+      navigate(`/categories/${categoryId}/videos`);
     } catch (err) {
       setFormError(String(err));
     } finally {
