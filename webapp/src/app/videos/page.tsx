@@ -9,7 +9,14 @@ import { Pagination } from "@/components/Pagination";
 import { SortBar, type SortOption } from "@/components/SortBar";
 import { formatDuration, formatRelative, truncateUrl } from "@/lib/format";
 
-const PAGE_SIZE = 12;
+const DEFAULT_PAGE_SIZE = 12;
+const PAGE_SIZE_OPTIONS = [12, 20, 50, 100];
+
+function resolvePageSize(raw: string | undefined): number {
+  const n = parseInt(raw ?? "", 10);
+  if (PAGE_SIZE_OPTIONS.includes(n)) return n;
+  return DEFAULT_PAGE_SIZE;
+}
 
 const SORT_OPTIONS: SortOption[] = [
   { label: "Name", value: "name" },
@@ -49,6 +56,7 @@ async function getVideos(
   sort: string,
   dir: "asc" | "desc",
   search: string,
+  pageSize: number,
 ) {
   const db = await getDb();
   const filter: Record<string, unknown> = {};
@@ -65,8 +73,8 @@ async function getVideos(
     .collection("videos")
     .find(filter)
     .sort(buildSortSpec(sort, dir))
-    .skip((page - 1) * PAGE_SIZE)
-    .limit(PAGE_SIZE)
+    .skip((page - 1) * pageSize)
+    .limit(pageSize)
     .toArray();
 
   // Lookup category names for the videos on this page only
@@ -108,27 +116,35 @@ async function getVideos(
 
   return {
     videos: enriched,
-    totalPages: Math.ceil(total / PAGE_SIZE),
+    total,
+    totalPages: Math.ceil(total / pageSize),
   };
 }
 
 export default async function VideosPage({
   searchParams,
 }: {
-  searchParams: { page?: string; sort?: string; dir?: string; search?: string };
+  searchParams: {
+    page?: string;
+    sort?: string;
+    dir?: string;
+    search?: string;
+    pageSize?: string;
+  };
 }) {
   const page = Math.max(1, parseInt(searchParams.page ?? "1", 10) || 1);
   const sort = searchParams.sort ?? "created";
   const dir: "asc" | "desc" = searchParams.dir === "desc" ? "desc" : "asc";
   const search = searchParams.search ?? "";
-  const { videos, totalPages } = await getVideos(page, sort, dir, search);
+  const pageSize = resolvePageSize(searchParams.pageSize);
+  const { videos, total, totalPages } = await getVideos(page, sort, dir, search, pageSize);
 
   return (
     <>
       <PageHeader
         eyebrow="MEDIA"
         title="Videos"
-        meta="All background videos across all categories. Click a card to edit the video; click ↗ to open the source URL in a new tab."
+        meta="All background videos across all categories. Watch inline, click a card to edit the video, or click ↗ to open the source URL in a new tab."
       />
 
       <div className="px-8 py-10">
@@ -171,6 +187,19 @@ export default async function VideosPage({
                   key={video._id}
                   className="hairline-t pt-5 group relative hover:bg-paperRaised/30 transition-colors -mx-2 px-2 pb-3 min-w-0"
                 >
+                  {/* Embedded video player — same pattern as /outputs.
+                      Users can watch inline; click ↗ below to open in
+                      a new tab if they want to keep browsing while
+                      watching. */}
+                  <div className="relative bg-ink mb-4 aspect-video">
+                    <video
+                      src={video.source_url}
+                      controls
+                      preload="metadata"
+                      className="w-full h-full"
+                    />
+                  </div>
+
                   {/* Video name + duration */}
                   <div className="flex items-baseline justify-between mb-2 gap-2 min-w-0">
                     {video._category_id ? (
@@ -216,14 +245,6 @@ export default async function VideosPage({
                     <span className="shrink-0">{formatRelative(video.last_used_at)}</span>
                   </div>
 
-                  {/* Source URL */}
-                  <div
-                    className="font-mono text-2xs text-mute truncate mb-3"
-                    title={video.source_url}
-                  >
-                    {truncateUrl(video.source_url, 70)}
-                  </div>
-
                   {/* Links: edit video + open source in new tab */}
                   <div className="flex items-center gap-4 flex-wrap">
                     <Link
@@ -254,6 +275,8 @@ export default async function VideosPage({
               currentPage={page}
               totalPages={totalPages}
               searchParams={searchParams}
+              pageSize={pageSize}
+              totalItems={total}
             />
           </>
         )}

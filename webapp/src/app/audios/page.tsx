@@ -8,7 +8,14 @@ import { Pagination } from "@/components/Pagination";
 import { SortBar, type SortOption } from "@/components/SortBar";
 import { formatDuration, formatRelative, truncateUrl } from "@/lib/format";
 
-const PAGE_SIZE = 30;
+const DEFAULT_PAGE_SIZE = 30;
+const PAGE_SIZE_OPTIONS = [12, 20, 50, 100];
+
+function resolvePageSize(raw: string | undefined): number {
+  const n = parseInt(raw ?? "", 10);
+  if (PAGE_SIZE_OPTIONS.includes(n)) return n;
+  return DEFAULT_PAGE_SIZE;
+}
 
 const SORT_OPTIONS: SortOption[] = [
   { label: "Usage", value: "usage" },
@@ -38,7 +45,7 @@ function buildSortSpec(sort: string, dir: "asc" | "desc"): Record<string, 1 | -1
   }
 }
 
-async function getAudios(search: string, page: number, sort: string, dir: "asc" | "desc") {
+async function getAudios(search: string, page: number, sort: string, dir: "asc" | "desc", pageSize: number) {
   const db = await getDb();
   const filter: Record<string, unknown> = {};
   if (search) {
@@ -49,25 +56,27 @@ async function getAudios(search: string, page: number, sort: string, dir: "asc" 
     .collection("audios")
     .find(filter)
     .sort(buildSortSpec(sort, dir))
-    .skip((page - 1) * PAGE_SIZE)
-    .limit(PAGE_SIZE)
+    .skip((page - 1) * pageSize)
+    .limit(pageSize)
     .toArray();
   return {
     audios: docs.map((d) => stringifyIds(d)),
-    totalPages: Math.ceil(total / PAGE_SIZE),
+    total,
+    totalPages: Math.ceil(total / pageSize),
   };
 }
 
 export default async function AudiosPage({
   searchParams,
 }: {
-  searchParams: { search?: string; page?: string; sort?: string; dir?: string };
+  searchParams: { search?: string; page?: string; sort?: string; dir?: string; pageSize?: string };
 }) {
   const search = searchParams.search ?? "";
+  const pageSize = resolvePageSize(searchParams.pageSize);
   const page = Math.max(1, parseInt(searchParams.page ?? "1", 10) || 1);
   const sort = searchParams.sort ?? "usage";
   const dir: "asc" | "desc" = searchParams.dir === "desc" ? "desc" : "asc";
-  const { audios, totalPages } = await getAudios(search, page, sort, dir);
+  const { audios, total, totalPages } = await getAudios(search, page, sort, dir, pageSize);
 
   return (
     <>
@@ -134,7 +143,7 @@ export default async function AudiosPage({
                       className="grid grid-cols-12 gap-4 px-2 py-4 items-center hover:bg-paperRaised/50 transition-colors"
                     >
                       <div className="col-span-1 num text-2xs text-mute">
-                        {String((page - 1) * PAGE_SIZE + i + 1).padStart(3, "0")}
+                        {String((page - 1) * pageSize + i + 1).padStart(3, "0")}
                       </div>
                       <div
                         className="col-span-3 truncate text-sm font-medium text-ink"
@@ -167,6 +176,8 @@ export default async function AudiosPage({
               currentPage={page}
               totalPages={totalPages}
               searchParams={searchParams}
+              pageSize={pageSize}
+              totalItems={total}
             />
           </>
         )}

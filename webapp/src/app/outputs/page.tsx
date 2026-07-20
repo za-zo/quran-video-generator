@@ -9,7 +9,14 @@ import { Pagination } from "@/components/Pagination";
 import { SortBar, type SortOption } from "@/components/SortBar";
 import { formatDuration, formatRelative, truncateUrl } from "@/lib/format";
 
-const PAGE_SIZE = 12;
+const DEFAULT_PAGE_SIZE = 12;
+const PAGE_SIZE_OPTIONS = [12, 20, 50, 100];
+
+function resolvePageSize(raw: string | undefined): number {
+  const n = parseInt(raw ?? "", 10);
+  if (PAGE_SIZE_OPTIONS.includes(n)) return n;
+  return DEFAULT_PAGE_SIZE;
+}
 
 const SORT_OPTIONS: SortOption[] = [
   { label: "Created", value: "created" },
@@ -37,7 +44,7 @@ function buildSortSpec(sort: string, dir: "asc" | "desc"): Record<string, 1 | -1
   }
 }
 
-async function getOutputs(page: number, sort: string, dir: "asc" | "desc") {
+async function getOutputs(page: number, sort: string, dir: "asc" | "desc", pageSize: number) {
   const db = await getDb();
   // Only successful slices have an output
   const filter = { status: "success", output: { $ne: null } };
@@ -46,8 +53,8 @@ async function getOutputs(page: number, sort: string, dir: "asc" | "desc") {
     .collection("execution_slices")
     .find(filter)
     .sort(buildSortSpec(sort, dir))
-    .skip((page - 1) * PAGE_SIZE)
-    .limit(PAGE_SIZE)
+    .skip((page - 1) * pageSize)
+    .limit(pageSize)
     .toArray();
 
   // Lookup audio names
@@ -82,19 +89,21 @@ async function getOutputs(page: number, sort: string, dir: "asc" | "desc") {
 
   return {
     outputs: enriched,
-    totalPages: Math.ceil(total / PAGE_SIZE),
+    total,
+    totalPages: Math.ceil(total / pageSize),
   };
 }
 
 export default async function OutputsPage({
   searchParams,
 }: {
-  searchParams: { page?: string; sort?: string; dir?: string };
+  searchParams: { page?: string; sort?: string; dir?: string; pageSize?: string };
 }) {
   const page = Math.max(1, parseInt(searchParams.page ?? "1", 10) || 1);
   const sort = searchParams.sort ?? "created";
   const dir: "asc" | "desc" = searchParams.dir === "desc" ? "desc" : "asc";
-  const { outputs, totalPages } = await getOutputs(page, sort, dir);
+  const pageSize = resolvePageSize(searchParams.pageSize);
+  const { outputs, total, totalPages } = await getOutputs(page, sort, dir, pageSize);
 
   return (
     <>
@@ -211,6 +220,8 @@ export default async function OutputsPage({
               currentPage={page}
               totalPages={totalPages}
               searchParams={searchParams}
+              pageSize={pageSize}
+              totalItems={total}
             />
           </>
         )}

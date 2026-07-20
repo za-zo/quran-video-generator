@@ -11,7 +11,14 @@ import { BackLink } from "@/components/BackLink";
 import { SortBar, type SortOption } from "@/components/SortBar";
 import { formatDuration, formatRelative, formatTimestamp } from "@/lib/format";
 
-const PAGE_SIZE = 30;
+const DEFAULT_PAGE_SIZE = 30;
+const PAGE_SIZE_OPTIONS = [12, 20, 50, 100];
+
+function resolvePageSize(raw: string | undefined): number {
+  const n = parseInt(raw ?? "", 10);
+  if (PAGE_SIZE_OPTIONS.includes(n)) return n;
+  return DEFAULT_PAGE_SIZE;
+}
 
 const SLICE_SORT_OPTIONS: SortOption[] = [
   { label: "Index", value: "index" },
@@ -59,6 +66,7 @@ async function getSlices(
   status: string | null,
   sort: string,
   dir: "asc" | "desc",
+  pageSize: number,
 ) {
   const db = await getDb();
   const { ObjectId } = await import("mongodb");
@@ -66,7 +74,7 @@ async function getSlices(
   try {
     oid = new ObjectId(executionId);
   } catch {
-    return { slices: [], totalPages: 0 };
+    return { slices: [], totalPages: 0, total: 0 };
   }
   const filter: Record<string, unknown> = { execution_id: oid };
   if (status && ["pending", "success", "failed", "canceled"].includes(status)) {
@@ -77,8 +85,8 @@ async function getSlices(
     .collection("execution_slices")
     .find(filter)
     .sort(buildSliceSortSpec(sort, dir))
-    .skip((page - 1) * PAGE_SIZE)
-    .limit(PAGE_SIZE)
+    .skip((page - 1) * pageSize)
+    .limit(pageSize)
     .toArray();
 
   // Lookup audio names (audio_id is stored as ObjectId in MongoDB)
@@ -107,7 +115,8 @@ async function getSlices(
 
   return {
     slices: enriched,
-    totalPages: Math.ceil(total / PAGE_SIZE),
+    total,
+    totalPages: Math.ceil(total / pageSize),
   };
 }
 
@@ -116,21 +125,23 @@ export default async function ExecutionDetailPage({
   searchParams,
 }: {
   params: { id: string };
-  searchParams: { page?: string; status?: string; sort?: string; dir?: string };
+  searchParams: { page?: string; status?: string; sort?: string; dir?: string; pageSize?: string };
 }) {
   const run = await getRun(params.id);
   if (!run) notFound();
 
+  const pageSize = resolvePageSize(searchParams.pageSize);
   const page = Math.max(1, parseInt(searchParams.page ?? "1", 10) || 1);
   const status = searchParams.status ?? null;
   const sort = searchParams.sort ?? "index";
   const dir: "asc" | "desc" = searchParams.dir === "desc" ? "desc" : "asc";
-  const { slices, totalPages } = await getSlices(
+  const { slices, total, totalPages } = await getSlices(
     String(run._id),
     page,
     status,
     sort,
     dir,
+    pageSize,
   );
 
   const githubRepo = process.env.GITHUB_REPO || "";
@@ -271,7 +282,7 @@ export default async function ExecutionDetailPage({
                         className="grid grid-cols-12 gap-4 px-2 py-4 items-center hover:bg-paperRaised/50 transition-colors"
                       >
                         <div className="col-span-1 num text-2xs text-mute">
-                          {String((page - 1) * PAGE_SIZE + i + 1).padStart(3, "0")}
+                          {String((page - 1) * pageSize + i + 1).padStart(3, "0")}
                         </div>
                         <div className="col-span-1">
                           <StatusBadge status={slice.status} />
@@ -309,6 +320,8 @@ export default async function ExecutionDetailPage({
                 currentPage={page}
                 totalPages={totalPages}
                 searchParams={searchParams}
+                pageSize={pageSize}
+                totalItems={total}
               />
             </>
           )}

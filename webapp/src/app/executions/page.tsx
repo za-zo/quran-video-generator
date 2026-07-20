@@ -9,7 +9,14 @@ import { Pagination } from "@/components/Pagination";
 import { SortBar, type SortOption } from "@/components/SortBar";
 import { formatRelative } from "@/lib/format";
 
-const PAGE_SIZE = 30;
+const DEFAULT_PAGE_SIZE = 30;
+const PAGE_SIZE_OPTIONS = [12, 20, 50, 100];
+
+function resolvePageSize(raw: string | undefined): number {
+  const n = parseInt(raw ?? "", 10);
+  if (PAGE_SIZE_OPTIONS.includes(n)) return n;
+  return DEFAULT_PAGE_SIZE;
+}
 
 const SORT_OPTIONS: SortOption[] = [
   { label: "Created", value: "created" },
@@ -39,7 +46,7 @@ function buildSortSpec(sort: string, dir: "asc" | "desc"): Record<string, 1 | -1
   }
 }
 
-async function getRuns(status: string | null, page: number, sort: string, dir: "asc" | "desc") {
+async function getRuns(status: string | null, page: number, sort: string, dir: "asc" | "desc", pageSize: number) {
   const db = await getDb();
   const match: Record<string, unknown> = {};
   if (status && ["running", "success", "failed", "partial", "canceled"].includes(status)) {
@@ -50,25 +57,27 @@ async function getRuns(status: string | null, page: number, sort: string, dir: "
     .collection("executions")
     .find(match)
     .sort(buildSortSpec(sort, dir))
-    .skip((page - 1) * PAGE_SIZE)
-    .limit(PAGE_SIZE)
+    .skip((page - 1) * pageSize)
+    .limit(pageSize)
     .toArray();
   return {
     runs: docs.map((d) => stringifyIds(d)),
-    totalPages: Math.ceil(total / PAGE_SIZE),
+    total,
+    totalPages: Math.ceil(total / pageSize),
   };
 }
 
 export default async function ExecutionsPage({
   searchParams,
 }: {
-  searchParams: { status?: string; page?: string; sort?: string; dir?: string };
+  searchParams: { status?: string; page?: string; sort?: string; dir?: string; pageSize?: string };
 }) {
   const status = searchParams.status ?? null;
+  const pageSize = resolvePageSize(searchParams.pageSize);
   const page = Math.max(1, parseInt(searchParams.page ?? "1", 10) || 1);
   const sort = searchParams.sort ?? "created";
   const dir: "asc" | "desc" = searchParams.dir === "desc" ? "desc" : "asc";
-  const { runs, totalPages } = await getRuns(status, page, sort, dir);
+  const { runs, total, totalPages } = await getRuns(status, page, sort, dir, pageSize);
 
   const tabs = [
     { label: "all", value: null },
@@ -172,6 +181,8 @@ export default async function ExecutionsPage({
               currentPage={page}
               totalPages={totalPages}
               searchParams={searchParams}
+              pageSize={pageSize}
+              totalItems={total}
             />
           </>
         )}

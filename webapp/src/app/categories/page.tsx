@@ -1,7 +1,8 @@
 /**
  * /categories — list all categories with their video counts.
  *
- * Backend paginated: fetches only PAGE_SIZE categories per request
+ * Backend paginated: fetches only pageSize categories per request
+ * (configurable via ?pageSize= URL param, default 12).
  * (skip/limit on the categories collection, or $skip/$limit stages
  * in the aggregation pipeline when sorting by video_count).
  */
@@ -16,7 +17,14 @@ import { Pagination } from "@/components/Pagination";
 import { SortBar, type SortOption } from "@/components/SortBar";
 import { formatRelative, truncateName } from "@/lib/format";
 
-const PAGE_SIZE = 12;
+const DEFAULT_PAGE_SIZE = 12;
+const PAGE_SIZE_OPTIONS = [12, 20, 50, 100];
+
+function resolvePageSize(raw: string | undefined): number {
+  const n = parseInt(raw ?? "", 10);
+  if (PAGE_SIZE_OPTIONS.includes(n)) return n;
+  return DEFAULT_PAGE_SIZE;
+}
 
 const SORT_OPTIONS: SortOption[] = [
   { label: "Name", value: "name" },
@@ -48,6 +56,7 @@ async function getCategories(
   sort: string,
   dir: "asc" | "desc",
   page: number,
+  pageSize: number,
 ) {
   const db = await getDb();
   const filter: Record<string, unknown> = {};
@@ -55,7 +64,7 @@ async function getCategories(
     filter.name = { $regex: search, $options: "i" };
   }
 
-  const skip = (page - 1) * PAGE_SIZE;
+  const skip = (page - 1) * pageSize;
 
   // For sort by video_count we need an aggregation join with $lookup.
   // Use $facet to get both the paginated rows and the total count in
@@ -81,7 +90,7 @@ async function getCategories(
       {
         $facet: {
           metadata: [{ $count: "total" }],
-          rows: [{ $skip: skip }, { $limit: PAGE_SIZE }],
+          rows: [{ $skip: skip }, { $limit: pageSize }],
         },
       },
     ];
@@ -91,7 +100,8 @@ async function getCategories(
     const cats = facet.rows ?? [];
     return {
       categories: cats.map((c: any) => stringifyIds(c)),
-      totalPages: Math.ceil(total / PAGE_SIZE),
+      total,
+      totalPages: Math.ceil(total / pageSize),
     };
   }
 
@@ -102,7 +112,7 @@ async function getCategories(
     .find(filter)
     .sort(buildSortSpec(sort, dir))
     .skip(skip)
-    .limit(PAGE_SIZE)
+    .limit(pageSize)
     .toArray();
 
   // Lookup video counts only for the categories on this page
@@ -123,20 +133,22 @@ async function getCategories(
       ...stringifyIds(c),
       video_count: countMap.get(String(c._id)) ?? 0,
     })),
-    totalPages: Math.ceil(total / PAGE_SIZE),
+    total,
+    totalPages: Math.ceil(total / pageSize),
   };
 }
 
 export default async function CategoriesPage({
   searchParams,
 }: {
-  searchParams: { search?: string; sort?: string; dir?: string; page?: string };
+  searchParams: { search?: string; sort?: string; dir?: string; page?: string; pageSize?: string };
 }) {
   const search = searchParams.search ?? "";
   const sort = searchParams.sort ?? "name";
   const dir: "asc" | "desc" = searchParams.dir === "desc" ? "desc" : "asc";
+  const pageSize = resolvePageSize(searchParams.pageSize);
   const page = Math.max(1, parseInt(searchParams.page ?? "1", 10) || 1);
-  const { categories, totalPages } = await getCategories(search, sort, dir, page);
+  const { categories, total, totalPages } = await getCategories(search, sort, dir, page, pageSize);
 
   return (
     <>
@@ -229,6 +241,8 @@ export default async function CategoriesPage({
               currentPage={page}
               totalPages={totalPages}
               searchParams={searchParams}
+              pageSize={pageSize}
+              totalItems={total}
             />
           </>
         )}
