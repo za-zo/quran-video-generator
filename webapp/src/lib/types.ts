@@ -76,6 +76,10 @@ export interface ExecutionSliceDoc {
   github_run_id: string;
   created_at: Date;
   completed_at: Date | null;
+  /** Operator-curated: account name where the video was published. */
+  posted_in?: string | null;
+  /** Operator-curated: flag for unsatisfactory outputs. */
+  bad_result?: boolean;
 }
 
 export interface DashboardStats {

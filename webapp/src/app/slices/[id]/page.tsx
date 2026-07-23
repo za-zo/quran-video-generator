@@ -9,6 +9,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { StatusBadge } from "@/components/StatusBadge";
 import { SliceTimeline } from "@/components/SliceTimeline";
 import { BackLink } from "@/components/BackLink";
+import { PostedInBadge, BadResultBadge } from "@/components/InfoBadge";
 import {
   formatDuration,
   formatTimestamp,
@@ -84,7 +85,14 @@ export default async function SliceDetailPage({
       <PageHeader
         eyebrow="PIPELINE / SLICE"
         title="Slice Detail"
-        actions={<StatusBadge status={slice.status} />}
+        actions={
+          <div className="flex items-center gap-3">
+            <Link href={`/slices/${params.id}/edit`} className="btn-ghost">
+              Edit slice
+            </Link>
+            <StatusBadge status={slice.status} />
+          </div>
+        }
         meta={
           <span>
             <span className="num text-xs">{slice._id}</span>
@@ -115,6 +123,20 @@ export default async function SliceDetailPage({
       />
 
       <div className="px-8 py-10 space-y-16">
+        {/* Curation badges: posted_in + bad_result */}
+        {(slice.posted_in || slice.bad_result) && (
+          <section className="flex items-center gap-3 flex-wrap">
+            {slice.posted_in && <PostedInBadge account={slice.posted_in} />}
+            {slice.bad_result && <BadResultBadge />}
+            <Link
+              href={`/slices/${params.id}/edit`}
+              className="quiet-link text-2xs ml-auto"
+            >
+              Edit →
+            </Link>
+          </section>
+        )}
+
         {/* Slice timeline */}
         {slice.slice && slice._audio && (
           <SliceTimeline

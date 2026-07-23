@@ -4,10 +4,10 @@ import Link from "next/link";
 import { getDb } from "@/lib/mongo";
 import { stringifyIds } from "@/lib/types";
 import { PageHeader } from "@/components/PageHeader";
-import { StatusBadge } from "@/components/StatusBadge";
 import { Pagination } from "@/components/Pagination";
 import { SortBar, type SortOption } from "@/components/SortBar";
-import { formatDuration, formatRelative, truncateUrl } from "@/lib/format";
+import { PostedInBadge, BadResultBadge } from "@/components/InfoBadge";
+import { formatDuration, formatRelative } from "@/lib/format";
 
 const DEFAULT_PAGE_SIZE = 12;
 const PAGE_SIZE_OPTIONS = [12, 20, 50, 100];
@@ -24,6 +24,8 @@ const SORT_OPTIONS: SortOption[] = [
   { label: "Audio", value: "audio" },
   { label: "Category", value: "category" },
   { label: "Resolution", value: "resolution" },
+  { label: "Posted in", value: "posted_in" },
+  { label: "Bad result", value: "bad_result" },
 ];
 
 function buildSortSpec(sort: string, dir: "asc" | "desc"): Record<string, 1 | -1> {
@@ -36,18 +38,39 @@ function buildSortSpec(sort: string, dir: "asc" | "desc"): Record<string, 1 | -1
     case "category":
       return { selected_category_id: d, created_at: d === 1 ? -1 : 1 };
     case "resolution":
-      // Sort by pixel count (width × height) descending = highest res first
       return { "output.width": d, "output.height": d, created_at: d === 1 ? -1 : 1 };
+    case "posted_in":
+      // Sort by posted_in presence then alphabetical. nulls last when
+      // ascending, first when descending (MongoDB default for null).
+      return { posted_in: d, created_at: d === 1 ? -1 : 1 };
+    case "bad_result":
+      return { bad_result: d, created_at: d === 1 ? -1 : 1 };
     case "created":
     default:
       return { created_at: d, _id: 1 };
   }
 }
 
-async function getOutputs(page: number, sort: string, dir: "asc" | "desc", pageSize: number) {
+async function getOutputs(
+  page: number,
+  sort: string,
+  dir: "asc" | "desc",
+  pageSize: number,
+  badResultFilter: "all" | "good" | "bad",
+) {
   const db = await getDb();
-  // Only successful slices have an output
-  const filter = { status: "success", output: { $ne: null } };
+  // Base filter: only successful slices with an output
+  const filter: Record<string, unknown> = {
+    status: "success",
+    output: { $ne: null },
+  };
+  if (badResultFilter === "bad") {
+    filter.bad_result = true;
+  } else if (badResultFilter === "good") {
+    // Good = not flagged as bad (field missing or explicitly false)
+    filter.$or = [{ bad_result: { $ne: true } }, { bad_result: { $exists: false } }];
+  }
+
   const total = await db.collection("execution_slices").countDocuments(filter);
   const docs = await db
     .collection("execution_slices")
@@ -97,39 +120,93 @@ async function getOutputs(page: number, sort: string, dir: "asc" | "desc", pageS
 export default async function OutputsPage({
   searchParams,
 }: {
-  searchParams: { page?: string; sort?: string; dir?: string; pageSize?: string };
+  searchParams: {
+    page?: string;
+    sort?: string;
+    dir?: string;
+    pageSize?: string;
+    bad?: string;
+  };
 }) {
   const page = Math.max(1, parseInt(searchParams.page ?? "1", 10) || 1);
   const sort = searchParams.sort ?? "created";
   const dir: "asc" | "desc" = searchParams.dir === "desc" ? "desc" : "asc";
   const pageSize = resolvePageSize(searchParams.pageSize);
-  const { outputs, total, totalPages } = await getOutputs(page, sort, dir, pageSize);
+  const badResultFilter: "all" | "good" | "bad" =
+    searchParams.bad === "bad" ? "bad" : searchParams.bad === "good" ? "good" : "all";
+  const { outputs, total, totalPages } = await getOutputs(
+    page,
+    sort,
+    dir,
+    pageSize,
+    badResultFilter,
+  );
+
+  // Bad result filter tabs — preserve sort/dir but reset page
+  const filterTabs = [
+    { label: "all", value: "all" as const },
+    { label: "good", value: "good" as const },
+    { label: "bad", value: "bad" as const },
+  ];
+  function filterTabHref(value: "all" | "good" | "bad") {
+    const params = new URLSearchParams();
+    if (value !== "all") params.set("bad", value);
+    if (sort && sort !== "created") params.set("sort", sort);
+    if (dir === "desc") params.set("dir", "desc");
+    const qs = params.toString();
+    return qs ? `/outputs?${qs}` : "/outputs";
+  }
 
   return (
     <>
       <PageHeader
         eyebrow="GALLERY"
         title="Video Outputs"
-        meta="All successful slice outputs, sorted as you choose. Click a card to open the slice detail; click ↗ to play the video in a new tab."
+        meta="All successful slice outputs. Bad results can be filtered out. Click a card to open the slice detail; click ↗ to play the video in a new tab."
       />
 
       <div className="px-8 py-10">
+        {/* Bad result filter */}
+        <div className="flex items-center gap-1 mb-6">
+          {filterTabs.map((t) => (
+            <Link
+              key={t.label}
+              href={filterTabHref(t.value)}
+              className={`px-3 py-1.5 text-xs uppercase tracking-wide-2 font-mono transition-colors ${
+                badResultFilter === t.value
+                  ? "bg-ink text-paper"
+                  : "text-mute hover:text-ink hover:bg-paperRaised"
+              }`}
+            >
+              {t.label}
+            </Link>
+          ))}
+        </div>
+
         {/* Sort bar */}
         <div className="mb-8">
           <SortBar
             options={SORT_OPTIONS}
             activeSort={sort}
             activeDir={dir}
+            preserveParams={{ bad: searchParams.bad }}
           />
         </div>
 
         {outputs.length === 0 ? (
           <div className="hairline-t pt-12 text-center">
             <div className="eyebrow mb-3">EMPTY</div>
-            <h2 className="font-serif text-3xl mb-3">No outputs yet</h2>
+            <h2 className="font-serif text-3xl mb-3">
+              {badResultFilter === "bad"
+                ? "No bad-result outputs"
+                : badResultFilter === "good"
+                  ? "No good outputs"
+                  : "No outputs yet"}
+            </h2>
             <p className="text-mute text-sm max-w-md mx-auto">
-              Successful pipeline runs will appear here as a gallery. Trigger a run
-              via GitHub Actions to see generated videos.
+              {badResultFilter !== "all"
+                ? "Try a different filter."
+                : "Successful pipeline runs will appear here as a gallery. Trigger a run via GitHub Actions to see generated videos."}
             </p>
           </div>
         ) : (
@@ -149,6 +226,14 @@ export default async function OutputsPage({
                       className="w-full h-full"
                     />
                   </div>
+
+                  {/* Curation badges */}
+                  {(slice.posted_in || slice.bad_result) && (
+                    <div className="flex items-center gap-2 flex-wrap mb-2">
+                      {slice.posted_in && <PostedInBadge account={slice.posted_in} />}
+                      {slice.bad_result && <BadResultBadge />}
+                    </div>
+                  )}
 
                   {/* Meta */}
                   <div className="flex items-baseline justify-between mb-2 gap-2">

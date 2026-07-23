@@ -392,6 +392,12 @@ class ExecutionSliceRepo:
             "github_run_id": github_run_id,
             "created_at": _utcnow(),
             "completed_at": None,
+            # Operator-curated fields (not set by the pipeline):
+            #   posted_in  — account name where the video was published
+            #   bad_result — flag for unsatisfactory outputs
+            # The webapp's /api/slices/[id] PUT endpoint updates these.
+            "posted_in": None,
+            "bad_result": False,
         }
         res = self.col.insert_one(doc)
         out = {**doc, "_id": res.inserted_id}
