@@ -229,7 +229,7 @@ export default async function OutputsPage({
 
                   {/* Curation badges */}
                   {(slice.posted_in || slice.bad_result) && (
-                    <div className="flex items-center gap-2 flex-wrap mb-2">
+                    <div className="flex items-center gap-2 flex-wrap mb-2 min-w-0">
                       {slice.posted_in && <PostedInBadge account={slice.posted_in} />}
                       {slice.bad_result && <BadResultBadge />}
                     </div>

@@ -125,12 +125,14 @@ export default async function SliceDetailPage({
       <div className="px-8 py-10 space-y-16">
         {/* Curation badges: posted_in + bad_result */}
         {(slice.posted_in || slice.bad_result) && (
-          <section className="flex items-center gap-3 flex-wrap">
-            {slice.posted_in && <PostedInBadge account={slice.posted_in} />}
-            {slice.bad_result && <BadResultBadge />}
+          <section className="flex items-center gap-3 flex-wrap min-w-0">
+            <div className="flex items-center gap-3 flex-wrap min-w-0 flex-1">
+              {slice.posted_in && <PostedInBadge account={slice.posted_in} />}
+              {slice.bad_result && <BadResultBadge />}
+            </div>
             <Link
               href={`/slices/${params.id}/edit`}
-              className="quiet-link text-2xs ml-auto"
+              className="quiet-link text-2xs shrink-0"
             >
               Edit →
             </Link>
