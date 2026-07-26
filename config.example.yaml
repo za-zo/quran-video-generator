@@ -49,6 +49,17 @@ selection:
   recency_decay_minutes: 1440   # how fast recency penalty decays (24h)
   usage_weight: 1.0             # weight applied to inverse usage_count score
   recency_weight: 1.0           # weight applied to recency score
+  strict_least_used: true       # always pick least-used candidates before higher-usage ones
+
+# Silence detection for ayat-respecting cuts.
+# Run once per audio via `python main.py analyze-audio --all` or
+# automatically during `generate`. The result is cached on the audio
+# document so subsequent runs reuse it.
+silence_detection:
+  min_silence_len_ms: 400        # minimum silence duration to count as a cut point
+  silence_thresh_offset_db: 16.0 # threshold = audio.dBFS - offset (higher = stricter)
+  max_positions: 500             # max silence positions stored per audio
+  tolerance_seconds: 5.0         # ±window around ideal clip end for acceptable silence
 
 # Logging
 logging:

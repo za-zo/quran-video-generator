@@ -72,6 +72,8 @@ def _audio_from_doc(d: dict[str, Any]) -> AudioRecord:
         duration_seconds=float(d.get("duration_seconds") or 0.0),
         usage_count=int(d.get("usage_count") or 0),
         last_used_at=d.get("last_used_at"),
+        silence_analyzed=bool(d.get("silence_analyzed", False)),
+        silence_positions=list(d.get("silence_positions") or []),
     )
 
 
@@ -154,6 +156,64 @@ class AudioRepo:
         self.col.update_one(
             {"_id": _oid(audio_id)},
             {"$set": {"duration_seconds": float(duration_seconds)}},
+        )
+
+    def save_silence_positions(
+        self, audio_id: str, positions: list[dict]
+    ) -> None:
+        """Save silence positions and mark the audio as analysed.
+
+        ``positions`` is a list of ``{position_seconds: float, duration_ms:
+        int}`` dicts (as returned by
+        :meth:`SilenceDetector.analyze`). Stored alongside the audio doc
+        so subsequent pipeline runs reuse the analysis instead of
+        re-running it.
+
+        Also sets ``silence_analyzed=True`` and ``silence_analyzed_at``
+        to the current UTC timestamp.
+        """
+        self.col.update_one(
+            {"_id": _oid(audio_id)},
+            {"$set": {
+                "silence_positions": list(positions or []),
+                "silence_analyzed": True,
+                "silence_analyzed_at": _utcnow(),
+            }},
+        )
+
+    def get_silence_positions(self, audio_id: str) -> list[dict]:
+        """Return the cached silence positions, or ``[]`` if not analysed."""
+        doc = self.col.find_one(
+            {"_id": _oid(audio_id)},
+            {"silence_positions": 1},
+        )
+        if not doc:
+            return []
+        return list(doc.get("silence_positions") or [])
+
+    def is_silence_analyzed(self, audio_id: str) -> bool:
+        """Return ``silence_analyzed`` (False if the field is missing)."""
+        doc = self.col.find_one(
+            {"_id": _oid(audio_id)},
+            {"silence_analyzed": 1},
+        )
+        if not doc:
+            return False
+        return bool(doc.get("silence_analyzed", False))
+
+    def clear_silence_analysis(self, audio_id: str) -> None:
+        """Reset silence analysis state for an audio.
+
+        Used by the webapp's DELETE /api/audios/[id]/silence endpoint to
+        force a re-analysis on the next pipeline run.
+        """
+        self.col.update_one(
+            {"_id": _oid(audio_id)},
+            {"$set": {
+                "silence_positions": [],
+                "silence_analyzed": False,
+                "silence_analyzed_at": None,
+            }},
         )
 
     def delete(self, audio_id: str) -> bool:

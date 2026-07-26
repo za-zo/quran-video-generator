@@ -25,6 +25,11 @@ class AudioRecord:
 
     ``source_url`` is a remote URL the pipeline downloads at runtime –
     the file is NOT stored locally.
+
+    ``silence_analyzed`` / ``silence_positions`` cache the result of
+    :class:`SilenceDetector.analyze` so the expensive analysis runs once
+    per audio. ``silence_positions`` is a list of
+    ``{position_seconds: float, duration_ms: int}`` dicts.
     """
 
     id: str
@@ -33,6 +38,8 @@ class AudioRecord:
     duration_seconds: float
     usage_count: int = 0
     last_used_at: datetime | None = None
+    silence_analyzed: bool = False
+    silence_positions: list[dict] = field(default_factory=list)
 
 
 @dataclass(frozen=True)

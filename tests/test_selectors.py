@@ -250,3 +250,114 @@ def test_video_selector_strict_raises(mongo_db):
 def _oid(id_str: str):
     from bson import ObjectId
     return ObjectId(id_str)
+
+
+# --- Strict least-used-first (Task 1) --------------------------------------
+
+def _selection_cfg(strict: bool) -> SelectionConfig:
+    return SelectionConfig(strict_least_used=strict)
+
+
+def test_strict_least_used_picks_zero_usage_first(mongo_db):
+    """With 3 audios at usage=0 and 2 at usage=5, the usage=0 pool must
+    be selected >= 95% of the time over 500 selections (without ever
+    calling mark_used, so usage counts never change)."""
+    repo = AudioRepo(mongo_db)
+    zero_audios = [
+        repo.create(name=f"zero_{i}", source_url=f"https://e.com/z{i}.mp3",
+                    duration_seconds=200.0)
+        for i in range(3)
+    ]
+    high_audios = [
+        repo.create(name=f"high_{i}", source_url=f"https://e.com/h{i}.mp3",
+                    duration_seconds=200.0)
+        for i in range(2)
+    ]
+    # Bump the high_* audios to usage_count=5 directly.
+    for a in high_audios:
+        mongo_db["audios"].update_one(
+            {"_id": _oid(a.id)},
+            {"$set": {"usage_count": 5, "last_used_at": datetime.now(timezone.utc)}},
+        )
+
+    sel = AudioSelector(
+        repo,
+        rng=random.Random(2024),
+        selection_cfg=_selection_cfg(strict=True),
+    )
+
+    counts = Counter(sel.select().name for _ in range(500))
+    zero_total = sum(counts[a.name] for a in zero_audios)
+    high_total = sum(counts[a.name] for a in high_audios)
+    assert zero_total >= 475, (
+        f"strict mode should pick zero-usage >=95% of the time, "
+        f"got zero={zero_total}/500"
+    )
+    assert high_total <= 25
+
+
+def test_strict_least_used_uniform_when_all_zero(mongo_db):
+    """When every audio has usage=0, no single audio should dominate
+    (>60% of 300 selections). Verifies variety within a tied tier."""
+    repo = AudioRepo(mongo_db)
+    names = [f"u_{i}" for i in range(5)]
+    for n in names:
+        repo.create(name=n, source_url=f"https://e.com/{n}.mp3",
+                    duration_seconds=150.0)
+
+    sel = AudioSelector(
+        repo,
+        rng=random.Random(7),
+        selection_cfg=_selection_cfg(strict=True),
+    )
+    counts = Counter(sel.select().name for _ in range(300))
+    for n in names:
+        assert counts[n] <= 180, (
+            f"audio {n!r} picked {counts[n]}/300 — exceeds 60% uniformity"
+            f" threshold"
+        )
+
+
+def test_legacy_weighted_when_strict_disabled(mongo_db):
+    """With strict_least_used=False, the old weighted-random behaviour
+    is used: high-usage audios CAN be picked (just less often). We
+    verify the high-usage pool is picked at least once in 500 tries
+    (it would be ~0% under strict mode)."""
+    repo = AudioRepo(mongo_db)
+    zero_audios = [
+        repo.create(name=f"z_{i}", source_url=f"https://e.com/z{i}.mp3",
+                    duration_seconds=200.0)
+        for i in range(3)
+    ]
+    high_audios = [
+        repo.create(name=f"h_{i}", source_url=f"https://e.com/h{i}.mp3",
+                    duration_seconds=200.0)
+        for i in range(2)
+    ]
+    for a in high_audios:
+        mongo_db["audios"].update_one(
+            {"_id": _oid(a.id)},
+            {"$set": {"usage_count": 5, "last_used_at": datetime.now(timezone.utc)}},
+        )
+
+    sel = AudioSelector(
+        repo,
+        rng=random.Random(99),
+        selection_cfg=_selection_cfg(strict=False),
+    )
+    counts = Counter(sel.select().name for _ in range(500))
+    high_total = sum(counts[a.name] for a in high_audios)
+    # Under legacy weighted, the high-usage pool is disadvantaged but
+    # not excluded. We expect it to be picked at least a handful of
+    # times (non-zero), proving strict tiering is OFF.
+    assert high_total > 0, (
+        "legacy mode should still occasionally pick high-usage audios, "
+        "but got 0/500"
+    )
+
+
+def test_strict_mode_default_is_on(mongo_db):
+    """SelectionConfig() with no args must default strict_least_used=True."""
+    cfg = SelectionConfig()
+    assert cfg.strict_least_used is True
+

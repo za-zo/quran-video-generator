@@ -40,7 +40,12 @@ from src.database.repository import (
     VideoRepo,
     ensure_indexes,
 )
+from src.exceptions import AppBaseException
 from src.services.generation_orchestrator import GenerationOrchestrator
+from src.services.silence_detector import SilenceDetector
+from src.utils import media_downloader
+from src.utils import ffmpeg_utils as ff
+from src.utils.file_utils import temp_workdir
 from src.utils.logger import get_logger
 
 log = get_logger(__name__)
@@ -192,6 +197,73 @@ def cmd_generate(args: argparse.Namespace, settings: Settings) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Silence analysis (standalone command)
+# ---------------------------------------------------------------------------
+
+def cmd_analyze_audio(args: argparse.Namespace, settings: Settings) -> int:
+    """Analyse silence positions for one or all audios.
+
+    Usage:
+        python main.py analyze-audio --audio-id <id>
+        python main.py analyze-audio --all
+        python main.py analyze-audio --force --all
+    """
+    settings.require_cloud_credentials()
+    db = get_db()
+    audio_repo = AudioRepo(db)
+    detector = SilenceDetector(settings)
+
+    # Determine the target set of audios.
+    if args.all:
+        audios = audio_repo.list_all()
+    elif args.audio_id:
+        single = audio_repo.get(args.audio_id)
+        if single is None:
+            print(f"ERROR: audio id={args.audio_id} not found", file=sys.stderr)
+            return 2
+        audios = [single]
+    else:
+        print("ERROR: provide --audio-id <id> or --all", file=sys.stderr)
+        return 2
+
+    if not args.force:
+        # Skip audios that have already been analysed (unless --force).
+        audios = [a for a in audios if not a.silence_analyzed]
+        if not audios:
+            print("Nothing to do — all selected audios are already analysed. "
+                  "Use --force to re-analyse.", file=sys.stderr)
+            return 0
+
+    print(f"Analysing {len(audios)} audio(s)…", file=sys.stderr)
+    succeeded = 0
+    failed = 0
+    for a in audios:
+        with temp_workdir(prefix=f"analyze_{a.id}_", base_dir=settings.temp_dir) as tmp:
+            try:
+                local = media_downloader.download_to_temp(
+                    a.source_url, tmp,
+                    expected_extension=".mp3",
+                    filename_hint=f"audio_{a.id}",
+                    expect_audio=True,
+                )
+                positions = detector.analyze(local)
+                audio_repo.save_silence_positions(a.id, positions)
+                print(f"  {a.name}: {len(positions)} positions trouvées")
+                succeeded += 1
+            except AppBaseException as exc:
+                print(f"  {a.name}: ÉCHEC — {exc}", file=sys.stderr)
+                log.warning("silence analysis failed for %s: %s", a.name, exc)
+                failed += 1
+            except Exception as exc:
+                print(f"  {a.name}: ÉCHEC — {exc}", file=sys.stderr)
+                log.exception("silence analysis crashed for %s", a.name)
+                failed += 1
+
+    print(f"\nDone: {succeeded} succeeded, {failed} failed.", file=sys.stderr)
+    return 0 if failed == 0 else 1
+
+
+# ---------------------------------------------------------------------------
 # Argparse
 # ---------------------------------------------------------------------------
 
@@ -228,6 +300,18 @@ def build_parser() -> argparse.ArgumentParser:
     p_gen.add_argument("--seed", type=int, default=None,
                        help="RNG seed for reproducible selection")
     p_gen.set_defaults(func=cmd_generate)
+
+    p_analyze = sub.add_parser(
+        "analyze-audio",
+        help="analyse silence positions in source audios (cached on the audio doc)",
+    )
+    p_analyze.add_argument("--audio-id", type=str, default=None,
+                           help="analyse a single audio by its MongoDB id")
+    p_analyze.add_argument("--all", action="store_true",
+                           help="analyse all audios that haven't been analysed yet")
+    p_analyze.add_argument("--force", action="store_true",
+                           help="re-analyse even if silence_analyzed is already True")
+    p_analyze.set_defaults(func=cmd_analyze_audio)
 
     return p
 

@@ -5,7 +5,9 @@ import { stringifyIds } from "@/lib/types";
 import { PageHeader } from "@/components/PageHeader";
 import { AudioForm } from "@/components/AudioForm";
 import { BackLink } from "@/components/BackLink";
-import { truncateName } from "@/lib/format";
+import { SilenceTimeline } from "@/components/SilenceTimeline";
+import { SilenceResetButton } from "@/components/SilenceResetButton";
+import { truncateName, formatDuration } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
@@ -25,6 +27,9 @@ async function getAudio(id: string) {
     name: String(s.name ?? ""),
     source_url: String(s.source_url ?? ""),
     duration_seconds: Number(s.duration_seconds ?? 0),
+    silence_positions: Array.isArray(s.silence_positions) ? s.silence_positions : [],
+    silence_analyzed: Boolean(s.silence_analyzed),
+    silence_analyzed_at: s.silence_analyzed_at ?? null,
   };
 }
 
@@ -45,6 +50,34 @@ export default async function EditAudioPage({
       />
       <div className="px-8 py-10 max-w-2xl">
         <AudioForm audio={audio} />
+
+        {/* Silence analysis section */}
+        <section className="mt-16">
+          <div className="eyebrow mb-4 hairline-b pb-3">POSITIONS DE SILENCE</div>
+          {audio.silence_analyzed ? (
+            <>
+              <SilenceTimeline
+                audioDuration={audio.duration_seconds}
+                audioName={audio.name}
+                positions={audio.silence_positions}
+                analyzedAt={audio.silence_analyzed_at}
+              />
+              <div className="mt-6">
+                <SilenceResetButton audioId={audio._id} />
+              </div>
+            </>
+          ) : (
+            <p className="text-mute italic text-sm">
+              Non analysé — l&apos;analyse se fait automatiquement au prochain
+              run, ou via{" "}
+              <code className="font-mono text-xs bg-paperRaised px-1 py-0.5">
+                python main.py analyze-audio --audio-id {audio._id}
+              </code>
+              .
+            </p>
+          )}
+        </section>
+
         <div className="mt-8 text-sm">
           <BackLink href="/audios">← back to audios</BackLink>
         </div>

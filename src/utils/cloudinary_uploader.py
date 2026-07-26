@@ -18,11 +18,17 @@ On any failure the uploader raises :class:`FFmpegExecutionError`-style
 exceptions (actually ``CloudinaryUploadError``) so the orchestrator can
 treat it like any other pipeline failure: mark the execution ``failed``,
 don't leave a dangling local file.
+
+Reporting
+---------
+Each successful upload is reported via :data:`pipeline_log.upload_ok`
+so the operator sees the URL inline in the run log.
 """
 
 from __future__ import annotations
 
 import os
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -32,7 +38,7 @@ import cloudinary.api
 
 from src.config.settings import Settings
 from src.exceptions import AppBaseException
-from src.utils.logger import get_logger
+from src.utils.logger import get_logger, pipeline_log
 
 log = get_logger(__name__)
 
@@ -105,6 +111,7 @@ def upload_video(
     public_id = f"{folder}/{execution_id}"
     log.info("uploading %s -> cloudinary public_id=%s", local_path, public_id)
 
+    start = time.time()
     try:
         # Use upload_large to automatically chunk the file.
         # We explicitly set chunk_size to 20MB to bypass Nginx 413 Request Entity Too Large errors.
@@ -132,9 +139,11 @@ def upload_video(
     width = int(resp.get("width") or 0)
     height = int(resp.get("height") or 0)
 
-    log.info(
-        "cloudinary upload ok: url=%s dur=%.2fs %dx%d",
-        resp["secure_url"], duration, width, height,
+    elapsed = time.time() - start
+    pipeline_log.upload_ok(resp["secure_url"], elapsed)
+    log.debug(
+        "cloudinary upload ok: url=%s dur=%.2fs %dx%d (%.2fs)",
+        resp["secure_url"], duration, width, height, elapsed,
     )
 
     return CloudinaryUploadResult(

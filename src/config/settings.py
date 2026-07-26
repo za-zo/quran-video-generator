@@ -46,6 +46,15 @@ class SelectionConfig(BaseModel):
     )
     usage_weight: float = Field(default=1.0, ge=0.0)
     recency_weight: float = Field(default=1.0, ge=0.0)
+    strict_least_used: bool = Field(
+        default=True,
+        description=(
+            "When True, candidates with the lowest usage_count are always "
+            "chosen before any higher-usage candidate. Within the tied "
+            "lowest-usage tier, the recency-weighted random selection "
+            "still applies for variety."
+        ),
+    )
 
 
 class LoggingConfig(BaseModel):
@@ -55,6 +64,38 @@ class LoggingConfig(BaseModel):
     log_file: str = "app.log"
     max_log_size_mb: int = Field(default=5, gt=0)
     backup_count: int = Field(default=5, ge=0)
+
+
+class SilenceDetectionConfig(BaseModel):
+    """Configuration for the ayat-respecting silence detector.
+
+    Used by :class:`src.services.silence_detector.SilenceDetector` to find
+    natural cut points (end-of-ayah silences) in source Quran recitations.
+    The analysis is run once per audio and cached on the audio document.
+    """
+
+    min_silence_len_ms: int = Field(
+        default=400, gt=0,
+        description="Minimum silence duration (ms) to be considered a cut point.",
+    )
+    silence_thresh_offset_db: float = Field(
+        default=16.0, gt=0,
+        description=(
+            "Silence threshold = audio.dBFS - offset. Higher = stricter "
+            "(only very quiet sections count as silence)."
+        ),
+    )
+    max_positions: int = Field(
+        default=500, gt=0,
+        description="Maximum number of silence positions to store per audio.",
+    )
+    tolerance_seconds: float = Field(
+        default=5.0, gt=0,
+        description=(
+            "Window (±seconds) around the ideal clip end where a silence "
+            "position is acceptable as the actual cut point."
+        ),
+    )
 
 
 # --- Top-level settings -----------------------------------------------------
@@ -116,6 +157,7 @@ class Settings(BaseSettings):
     # Nested config objects
     selection: SelectionConfig = Field(default_factory=SelectionConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
+    silence_detection: SilenceDetectionConfig = Field(default_factory=SilenceDetectionConfig)
 
     # --- Validation helpers -------------------------------------------------
 
@@ -196,8 +238,9 @@ def _load_yaml_into_env(yaml_path: Path) -> dict[str, Any]:
     """Read a YAML file and return a flat dict of scalar settings.
 
     Nested keys are ignored here because they are mapped to typed sub-models
-    (``selection``, ``logging``). We only promote top-level scalars so they
-    can override Pydantic defaults via ``Settings(**data)``.
+    (``selection``, ``logging``, ``silence_detection``). We only promote
+    top-level scalars so they can override Pydantic defaults via
+    ``Settings(**data)``.
     """
     if not yaml_path.exists():
         return {}
@@ -226,9 +269,14 @@ def get_settings(config_path: str | None = None) -> Settings:
         yaml_data["selection"] = SelectionConfig(**yaml_data["selection"])
     if "logging" in yaml_data and isinstance(yaml_data["logging"], dict):
         yaml_data["logging"] = LoggingConfig(**yaml_data["logging"])
+    if "silence_detection" in yaml_data and isinstance(yaml_data["silence_detection"], dict):
+        yaml_data["silence_detection"] = SilenceDetectionConfig(
+            **yaml_data["silence_detection"]
+        )
 
     # Drop empty/None top-level scalars so env vars can fill them in.
-    # (Nested sub-models like `selection` / `logging` are kept as-is.)
+    # (Nested sub-models like `selection` / `logging` / `silence_detection`
+    # are kept as-is.)
     filtered: dict[str, Any] = {}
     for k, v in yaml_data.items():
         if isinstance(v, str):
@@ -266,6 +314,7 @@ __all__ = [
     "Settings",
     "SelectionConfig",
     "LoggingConfig",
+    "SilenceDetectionConfig",
     "get_settings",
     "reload_settings",
 ]

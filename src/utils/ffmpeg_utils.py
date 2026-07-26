@@ -593,6 +593,9 @@ def build_clip_one_pass(
     This avoids re-encoding the same video 4 times (mute -> concat -> trim -> merge).
     We scale/normalize all input videos, concat them, trim to the target duration,
     and merge with the extracted audio slice all in one filter_complex graph.
+
+    Reports the elapsed encode time to :data:`pipeline_log.encode_ok` on
+    success.
     """
     dst_path = Path(dst)
     dst_path.parent.mkdir(parents=True, exist_ok=True)
@@ -633,7 +636,13 @@ def build_clip_one_pass(
         "-shortest",
         str(dst_path),
     ])
+    start = time.time()
     _run_subprocess(cmd)
+    elapsed = time.time() - start
+    # Report to the pipeline logger. Imported lazily to avoid a circular
+    # import at module load time (logger -> settings -> ...).
+    from src.utils.logger import pipeline_log
+    pipeline_log.encode_ok(elapsed)
     return dst_path
 
 

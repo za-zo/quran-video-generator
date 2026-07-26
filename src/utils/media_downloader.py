@@ -16,6 +16,8 @@ Design notes
   downstream.
 * Raises :class:`CorruptedMediaError` for any failure – downloads are
   treated like any other media-acquisition step.
+* Reports each successful download to :data:`pipeline_log` so the
+  operator sees the file size and elapsed time inline in the run log.
 """
 
 from __future__ import annotations
@@ -29,7 +31,7 @@ import requests
 
 from src.exceptions import CorruptedMediaError
 from src.utils.ffmpeg_utils import validate_media
-from src.utils.logger import get_logger
+from src.utils.logger import get_logger, pipeline_log
 
 log = get_logger(__name__)
 
@@ -58,6 +60,7 @@ def download_to_temp(
     expect_audio: bool = False,
     expect_video: bool = False,
     retries: int = 1,
+    label: str | None = None,
 ) -> Path:
     """Download ``url`` into ``dest_dir`` and return the local path.
 
@@ -78,6 +81,11 @@ def download_to_temp(
         for the corresponding stream before returning.
     retries
         Number of retries on transient failure (default 1 = one retry).
+    label
+        Optional short label passed to ``pipeline_log.download_ok`` so
+        the run log reads ``⋯ Téléchargement audio ✓ 1.2 MB · 0.8s``
+        instead of a raw URL. Defaults to ``expect_audio=True`` →
+        ``"audio"``, ``expect_video=True`` → ``"vidéo"``.
 
     Raises
     ------
@@ -103,8 +111,18 @@ def download_to_temp(
 
     dst = dest_dir / name
 
+    # Pick a sensible label for the pipeline log if none was supplied.
+    if label is None:
+        if expect_audio:
+            label = "audio"
+        elif expect_video:
+            label = "vidéo"
+        else:
+            label = "fichier"
+
     last_exc: Exception | None = None
     for attempt in range(retries + 1):
+        start = time.time()
         try:
             _stream_to_file(url, dst)
             # Validate non-empty.
@@ -116,7 +134,9 @@ def download_to_temp(
             # Optional ffprobe check.
             if expect_audio or expect_video:
                 validate_media(dst, expect_audio=expect_audio, expect_video=expect_video)
-            log.info("downloaded %s -> %s (%d bytes)", url, dst, size)
+            elapsed = time.time() - start
+            pipeline_log.download_ok(label, size, elapsed)
+            log.debug("downloaded %s -> %s (%d bytes, %.2fs)", url, dst, size, elapsed)
             return dst
         except CorruptedMediaError as exc:
             last_exc = exc

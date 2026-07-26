@@ -15,6 +15,9 @@ requests>=2.31.0
 # Cloudinary upload (final MP4 delivery)
 cloudinary>=1.38.0
 
+# Audio analysis (silence detection for ayat-respecting cuts)
+pydub>=0.25.1
+
 # Testing
 pytest>=7.4.0
 mongomock>=4.1.0
