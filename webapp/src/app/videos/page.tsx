@@ -187,16 +187,15 @@ export default async function VideosPage({
                   key={video._id}
                   className="hairline-t pt-5 group relative hover:bg-paperRaised/30 transition-colors -mx-2 px-2 pb-3 min-w-0"
                 >
-                  {/* Embedded video player — same pattern as /outputs.
-                      Users can watch inline; click ↗ below to open in
-                      a new tab if they want to keep browsing while
-                      watching. */}
-                  <div className="relative bg-ink mb-4 aspect-video">
+                  {/* Video player — uses the video's natural aspect ratio
+                      instead of forcing 16:9. Vertical (9:16) videos
+                      display tall, landscape (16:9) videos display wide. */}
+                  <div className="relative bg-ink mb-4 flex items-center justify-center overflow-hidden">
                     <video
                       src={video.source_url}
                       controls
                       preload="metadata"
-                      className="w-full h-full"
+                      className="w-full h-auto max-h-[70vh] block"
                     />
                   </div>
 

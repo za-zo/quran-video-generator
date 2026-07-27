@@ -217,13 +217,15 @@ export default async function OutputsPage({
                   key={slice._id}
                   className="hairline-t pt-5 group relative hover:bg-paperRaised/30 transition-colors -mx-2 px-2 pb-3"
                 >
-                  {/* Thumbnail / video preview */}
-                  <div className="relative bg-ink mb-4 aspect-video">
+                  {/* Video player — uses the video's natural aspect ratio
+                      instead of forcing 16:9. Vertical (9:16) videos
+                      display tall, landscape (16:9) videos display wide. */}
+                  <div className="relative bg-ink mb-4 flex items-center justify-center overflow-hidden">
                     <video
                       src={slice.output?.cloudinary_url}
                       controls
                       preload="metadata"
-                      className="w-full h-full"
+                      className="w-full h-auto max-h-[70vh] block"
                     />
                   </div>
 
