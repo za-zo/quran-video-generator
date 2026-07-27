@@ -594,18 +594,31 @@ def build_clip_one_pass(
     We scale/normalize all input videos, concat them, trim to the target duration,
     and merge with the extracted audio slice all in one filter_complex graph.
 
+    Audio seeking uses the ``atrim`` filter inside the filter_complex
+    (NOT ``-ss`` before ``-i``) so the cut is sample-accurate. Input-level
+    ``-ss`` snaps to the nearest MP3 frame boundary (~26ms) which loses
+    the millisecond precision of the silence positions. ``atrim`` decodes
+    the full audio and trims at the exact sample, preserving the silence
+    centre position to the millisecond.
+
     Reports the elapsed encode time to :data:`pipeline_log.encode_ok` on
     success.
     """
     dst_path = Path(dst)
     dst_path.parent.mkdir(parents=True, exist_ok=True)
 
+    # --- Build the command line ----------------------------------------
+    # Audio is loaded as a full input (NO -ss before -i) so the atrim
+    # filter can seek to the exact sample.
     cmd: list[str] = [FFMPEG_BIN, "-y"]
     for v in video_paths:
         cmd.extend(["-i", str(Path(v).resolve())])
-    
-    # Audio input with seeking
-    cmd.extend(["-ss", f"{audio_start:.3f}", "-t", f"{duration:.3f}", "-i", str(Path(audio_path).resolve())])
+
+    # Audio input — full file, no input-level seek
+    audio_end = audio_start + duration
+    cmd.extend(["-i", str(Path(audio_path).resolve())])
+
+    audio_idx = len(video_paths)
 
     # Build filter complex
     filter_parts = []
@@ -615,24 +628,34 @@ def build_clip_one_pass(
             f"[{i}:v]scale={width}:{height}:force_original_aspect_ratio=disable,setsar=1,fps={fps}[v{i}]"
         )
         concat_inputs.append(f"[v{i}]")
-    
+
     filter_parts.append(f"{''.join(concat_inputs)}concat=n={len(video_paths)}:v=1:a=0[catv]")
     filter_parts.append(f"[catv]trim=duration={duration},setpts=PTS-STARTPTS[outv]")
+
+    # Audio: atrim for SAMPLE-ACCURATE seeking.
+    # atrim=start=X:end=Y decodes the full audio then trims at the exact
+    # sample boundary, preserving millisecond precision. This is critical
+    # for ayat-respecting cuts where the silence centre has sub-second
+    # precision (e.g. 231.445s).
+    filter_parts.append(
+        f"[{audio_idx}:a]atrim=start={audio_start:.6f}:end={audio_end:.6f},"
+        f"asetpts=PTS-STARTPTS[outa]"
+    )
+
     filter_complex = ";".join(filter_parts)
 
-    audio_idx = len(video_paths)
     cmd.extend([
         "-filter_complex", filter_complex,
         "-map", "[outv]",
-        "-map", f"{audio_idx}:a",
+        "-map", "[outa]",
         "-c:v", video_codec,
         "-preset", video_preset,
-        "-crf", "28",            # Passé de 23 à 28 pour réduire drastiquement la taille
+        "-crf", "28",
         "-r", str(fps),
         "-pix_fmt", "yuv420p",
         *_gop_flags(fps),
         "-c:a", audio_codec,
-        "-b:a", "128k",          # Limite l'audio à 128kbits (suffisant pour la voix)
+        "-b:a", "128k",
         "-shortest",
         str(dst_path),
     ])
