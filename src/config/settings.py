@@ -94,6 +94,16 @@ class SilenceDetectionConfig(BaseModel):
         default=5.0, gt=0,
         description="Fenêtre ±N secondes pour trouver la position la plus proche",
     )
+    end_tolerance_percent: float = Field(
+        default=10.0, gt=0, le=100.0,
+        description=(
+            "Pourcentage de la durée du clip utilisé comme fenêtre "
+            "de recherche pour aligner la FIN du clip sur un silence. "
+            "Ex: 10% sur un clip de 60s → recherche ±6s autour de la "
+            "fin idéale. La position la plus proche (avant ou après) "
+            "devient la fin réelle, rendant la durée flexible."
+        ),
+    )
 
 
 # --- Top-level settings -----------------------------------------------------

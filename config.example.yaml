@@ -60,6 +60,7 @@ silence_detection:
   threshold_percentile: 15
   max_positions: 500
   tolerance_seconds: 5.0
+  end_tolerance_percent: 10.0   # ±10% de la durée du clip pour aligner la fin sur un silence
 
 # Logging
 logging:

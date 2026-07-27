@@ -18,11 +18,23 @@ Ayat-respecting cuts (silence snapping)
 ---------------------------------------
 When ``silence_positions`` is passed to :meth:`extract` (a list of
 ``{position_seconds, duration_ms}`` dicts as produced by
-:class:`SilenceDetector`), each clip's end_seconds is snapped to the
-nearest silence position within ``±tolerance_seconds`` of the ideal
-mechanical end. The start_seconds is then adjusted to keep the clip
-duration equal to ``clip_duration``. If no silence is found in the
-tolerance window, the mechanical cut is kept (graceful degradation).
+:class:`SilenceDetector`):
+
+* **Start snapping**: the clip's start_seconds is snapped to the nearest
+  silence position within ``±tolerance_seconds``. If found, the start
+  moves to the silence centre.
+
+* **End snapping (FLEXIBLE DURATION)**: the clip's end_seconds is snapped
+  to the nearest silence position within ``±end_tolerance_percent`` %
+  of ``clip_duration`` (default ±10% → ±6s for a 60s clip). If found,
+  the end moves to the silence centre, making the actual clip duration
+  slightly longer or shorter than ``clip_duration``. The video output
+  respects this actual duration — it's NOT cut back to exactly
+  ``clip_duration``.
+
+* **No rounding**: positions are kept as raw floats to preserve
+  millisecond precision. Rounding was causing the cut to land on the
+  wrong spot (the silence centre at 231.445s became 231.000s).
 """
 
 from __future__ import annotations
@@ -64,9 +76,13 @@ class ClipExtractor:
             The source audio record. Must have ``duration_seconds > 0``.
         silence_positions
             Optional cached silence positions (list of
-            ``{position_seconds, duration_ms}``). When provided, each
-            clip's end is snapped to the nearest silence within
-            ``settings.silence_detection.tolerance_seconds``.
+            ``{position_seconds, duration_ms}``). When provided, the clip
+            START is snapped to the nearest silence within
+            ``settings.silence_detection.tolerance_seconds``, and the clip
+            END is snapped to the nearest silence within
+            ``settings.silence_detection.end_tolerance_percent`` % of
+            ``clip_duration``. The actual clip duration may therefore
+            differ slightly from ``clip_duration``.
         """
         clip_dur = float(self.settings.clip_duration)
         max_clips = int(self.settings.clips_per_audio)
@@ -93,7 +109,10 @@ class ClipExtractor:
             )
 
         zone_size = audio.duration_seconds / n_clips
-        tolerance = float(self.settings.silence_detection.tolerance_seconds)
+        start_tolerance = float(self.settings.silence_detection.tolerance_seconds)
+        end_tolerance_pct = float(self.settings.silence_detection.end_tolerance_percent)
+        # End search window = ±N% of clip_duration.
+        end_tolerance = clip_dur * (end_tolerance_pct / 100.0)
 
         clips: list[AudioClip] = []
         for i in range(n_clips):
@@ -107,35 +126,55 @@ class ClipExtractor:
             start = max(0.0, min(start, audio.duration_seconds - clip_dur))
             end = start + clip_dur
 
-            # --- Silence snapping (ayat-respecting cuts) ------------------
-            # If we have a silence detector and cached positions, try to
-            # move the END of the clip to the nearest silence within the
-            # tolerance window. Then shift START back so the clip keeps
-            # the same duration.
+            # --- Start snapping (ayat-respecting start) -------------------
+            # Snap the START to the nearest silence within start_tolerance.
+            # This makes the clip begin at a silence centre rather than
+            # mid-word.
             if self.silence_detector and silence_positions:
-                nearest = self.silence_detector.find_nearest_position(
-                    end, silence_positions, tolerance_seconds=tolerance,
+                nearest_start = self.silence_detector.find_nearest_position(
+                    start, silence_positions, tolerance_seconds=start_tolerance,
                 )
-                if nearest is not None:
-                    new_end = nearest
-                    new_start = new_end - clip_dur
-                    # Keep within bounds — if shifting would push start
-                    # below 0 or end beyond the audio, fall back to the
-                    # mechanical cut.
+                if nearest_start is not None:
+                    new_start = nearest_start
+                    # Keep the end = new_start + clip_dur (mechanical end
+                    # shifts with the start). Bounds check.
+                    new_end = new_start + clip_dur
                     if new_start >= 0.0 and new_end <= audio.duration_seconds:
                         start = new_start
                         end = new_end
                         log.debug(
-                            "clip %d snapped to silence at %.3fs (was %.3fs)",
-                            i, end, start + clip_dur,
+                            "clip %d start snapped to silence at %.6fs",
+                            i, start,
                         )
 
+            # --- End snapping (FLEXIBLE DURATION) ------------------------
+            # Snap the END to the nearest silence within ±end_tolerance.
+            # This makes the clip END on a silence centre, even if that
+            # means the actual duration differs from clip_dur. The video
+            # output uses the actual duration — it's NOT cut back.
+            if self.silence_detector and silence_positions:
+                nearest_end = self.silence_detector.find_nearest_position(
+                    end, silence_positions, tolerance_seconds=end_tolerance,
+                )
+                if nearest_end is not None:
+                    new_end = nearest_end
+                    # Bounds: end must be > start and <= audio duration.
+                    if new_end > start and new_end <= audio.duration_seconds:
+                        end = new_end
+                        log.debug(
+                            "clip %d end snapped to silence at %.6fs "
+                            "(actual duration %.3fs vs target %.3fs)",
+                            i, end, end - start, clip_dur,
+                        )
+
+            # NO rounding — preserve millisecond precision exactly as
+            # the silence detector computed it.
             clips.append(
                 AudioClip(
                     audio_id=audio.id,
                     index=i,
-                    start_seconds=round(start, 3),
-                    end_seconds=round(end, 3),
+                    start_seconds=start,
+                    end_seconds=end,
                 )
             )
 
