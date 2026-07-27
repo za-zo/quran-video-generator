@@ -57,6 +57,7 @@ async function getOutputs(
   dir: "asc" | "desc",
   pageSize: number,
   badResultFilter: "all" | "good" | "bad",
+  postedInSearch: string,
 ) {
   const db = await getDb();
   // Base filter: only successful slices with an output
@@ -69,6 +70,9 @@ async function getOutputs(
   } else if (badResultFilter === "good") {
     // Good = not flagged as bad (field missing or explicitly false)
     filter.$or = [{ bad_result: { $ne: true } }, { bad_result: { $exists: false } }];
+  }
+  if (postedInSearch) {
+    filter.posted_in = { $regex: postedInSearch, $options: "i" };
   }
 
   const total = await db.collection("execution_slices").countDocuments(filter);
@@ -126,6 +130,7 @@ export default async function OutputsPage({
     dir?: string;
     pageSize?: string;
     bad?: string;
+    posted?: string;
   };
 }) {
   const page = Math.max(1, parseInt(searchParams.page ?? "1", 10) || 1);
@@ -134,15 +139,17 @@ export default async function OutputsPage({
   const pageSize = resolvePageSize(searchParams.pageSize);
   const badResultFilter: "all" | "good" | "bad" =
     searchParams.bad === "bad" ? "bad" : searchParams.bad === "good" ? "good" : "all";
+  const postedInSearch = searchParams.posted ?? "";
   const { outputs, total, totalPages } = await getOutputs(
     page,
     sort,
     dir,
     pageSize,
     badResultFilter,
+    postedInSearch,
   );
 
-  // Bad result filter tabs — preserve sort/dir but reset page
+  // Bad result filter tabs — preserve sort/dir/posted but reset page
   const filterTabs = [
     { label: "all", value: "all" as const },
     { label: "good", value: "good" as const },
@@ -151,6 +158,7 @@ export default async function OutputsPage({
   function filterTabHref(value: "all" | "good" | "bad") {
     const params = new URLSearchParams();
     if (value !== "all") params.set("bad", value);
+    if (postedInSearch) params.set("posted", postedInSearch);
     if (sort && sort !== "created") params.set("sort", sort);
     if (dir === "desc") params.set("dir", "desc");
     const qs = params.toString();
@@ -166,21 +174,32 @@ export default async function OutputsPage({
       />
 
       <div className="px-8 py-10">
-        {/* Bad result filter */}
-        <div className="flex items-center gap-1 mb-6">
-          {filterTabs.map((t) => (
-            <Link
-              key={t.label}
-              href={filterTabHref(t.value)}
-              className={`px-3 py-1.5 text-xs uppercase tracking-wide-2 font-mono transition-colors ${
-                badResultFilter === t.value
-                  ? "bg-ink text-paper"
-                  : "text-mute hover:text-ink hover:bg-paperRaised"
-              }`}
-            >
-              {t.label}
-            </Link>
-          ))}
+        {/* Search by posted_in + bad result filter */}
+        <div className="flex items-center gap-6 mb-6 flex-wrap">
+          <form className="max-w-xs flex-1 min-w-[14rem]">
+            <input
+              type="text"
+              name="posted"
+              defaultValue={postedInSearch}
+              placeholder="Search posted_in (e.g. ila.allah.almasir)…"
+              className="field-input"
+            />
+          </form>
+          <div className="flex items-center gap-1">
+            {filterTabs.map((t) => (
+              <Link
+                key={t.label}
+                href={filterTabHref(t.value)}
+                className={`px-3 py-1.5 text-xs uppercase tracking-wide-2 font-mono transition-colors ${
+                  badResultFilter === t.value
+                    ? "bg-ink text-paper"
+                    : "text-mute hover:text-ink hover:bg-paperRaised"
+                }`}
+              >
+                {t.label}
+              </Link>
+            ))}
+          </div>
         </div>
 
         {/* Sort bar */}
@@ -189,7 +208,7 @@ export default async function OutputsPage({
             options={SORT_OPTIONS}
             activeSort={sort}
             activeDir={dir}
-            preserveParams={{ bad: searchParams.bad }}
+            preserveParams={{ bad: searchParams.bad, posted: searchParams.posted }}
           />
         </div>
 
@@ -197,15 +216,17 @@ export default async function OutputsPage({
           <div className="hairline-t pt-12 text-center">
             <div className="eyebrow mb-3">EMPTY</div>
             <h2 className="font-serif text-3xl mb-3">
-              {badResultFilter === "bad"
-                ? "No bad-result outputs"
-                : badResultFilter === "good"
-                  ? "No good outputs"
-                  : "No outputs yet"}
+              {postedInSearch
+                ? "No outputs match your search"
+                : badResultFilter === "bad"
+                  ? "No bad-result outputs"
+                  : badResultFilter === "good"
+                    ? "No good outputs"
+                    : "No outputs yet"}
             </h2>
             <p className="text-mute text-sm max-w-md mx-auto">
-              {badResultFilter !== "all"
-                ? "Try a different filter."
+              {postedInSearch || badResultFilter !== "all"
+                ? "Try a different search term or filter."
                 : "Successful pipeline runs will appear here as a gallery. Trigger a run via GitHub Actions to see generated videos."}
             </p>
           </div>
