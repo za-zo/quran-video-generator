@@ -16,7 +16,10 @@ requests>=2.31.0
 cloudinary>=1.38.0
 
 # Audio analysis (silence detection for ayat-respecting cuts)
-pydub>=0.25.1
+# librosa provides RMS energy + percentile-based relative thresholding,
+# which adapts to variable-volume recordings (Quran recitations).
+# numpy is a transitive dependency of librosa.
+librosa>=0.10.0
 
 # Testing
 pytest>=7.4.0

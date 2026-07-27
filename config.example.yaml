@@ -56,10 +56,10 @@ selection:
 # automatically during `generate`. The result is cached on the audio
 # document so subsequent runs reuse it.
 silence_detection:
-  min_silence_len_ms: 400        # minimum silence duration to count as a cut point
-  silence_thresh_offset_db: 16.0 # threshold = audio.dBFS - offset (higher = stricter)
-  max_positions: 500             # max silence positions stored per audio
-  tolerance_seconds: 5.0         # ±window around ideal clip end for acceptable silence
+  min_silence_len_ms: 300
+  threshold_percentile: 15
+  max_positions: 500
+  tolerance_seconds: 5.0
 
 # Logging
 logging:

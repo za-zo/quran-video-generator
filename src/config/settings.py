@@ -72,29 +72,27 @@ class SilenceDetectionConfig(BaseModel):
     Used by :class:`src.services.silence_detector.SilenceDetector` to find
     natural cut points (end-of-ayah silences) in source Quran recitations.
     The analysis is run once per audio and cached on the audio document.
+
+    The detector uses librosa's RMS energy + a percentile-based relative
+    threshold (instead of pydub's absolute dBFS threshold), which adapts
+    to variable-volume recordings — exactly what Quran recitations need.
     """
 
     min_silence_len_ms: int = Field(
-        default=400, gt=0,
-        description="Minimum silence duration (ms) to be considered a cut point.",
+        default=300, gt=0,
+        description="Durée minimale d'un silence en ms",
     )
-    silence_thresh_offset_db: float = Field(
-        default=16.0, gt=0,
-        description=(
-            "Silence threshold = audio.dBFS - offset. Higher = stricter "
-            "(only very quiet sections count as silence)."
-        ),
+    threshold_percentile: int = Field(
+        default=15, ge=1, le=99,
+        description="Percentile de l'énergie RMS pour le seuil auto",
     )
     max_positions: int = Field(
         default=500, gt=0,
-        description="Maximum number of silence positions to store per audio.",
+        description="Nombre max de positions à stocker",
     )
     tolerance_seconds: float = Field(
         default=5.0, gt=0,
-        description=(
-            "Window (±seconds) around the ideal clip end where a silence "
-            "position is acceptable as the actual cut point."
-        ),
+        description="Fenêtre ±N secondes pour trouver la position la plus proche",
     )
 
 
